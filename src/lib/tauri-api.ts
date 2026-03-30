@@ -41,6 +41,40 @@ function assertTauriAvailable(feature: string) {
   }
 }
 
+function toFileUrl(path: string): string {
+  // Keep URLs as-is
+  if (/^([a-zA-Z][a-zA-Z0-9+.-]*):\/\//.test(path)) {
+    return path;
+  }
+
+  // Windows absolute path: C:\foo\bar → file:///C:/foo/bar
+  if (/^[a-zA-Z]:[\\/]/.test(path)) {
+    const normalized = path.replace(/\\/g, '/');
+    return `file:///${encodeURI(normalized)}`;
+  }
+
+  // POSIX absolute path: /Users/... → file:///Users/...
+  if (path.startsWith('/')) {
+    return `file://${encodeURI(path)}`;
+  }
+
+  // Fallback: leave untouched (may still work depending on platform)
+  return path;
+}
+
+/**
+ * Reveal the given path in the system file manager (Finder/Explorer).
+ */
+export async function revealInFolder(path: string): Promise<void> {
+  assertTauriAvailable('Reveal in folder');
+  try {
+    await invoke<void>('reveal_in_folder', { path });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`Failed to reveal in folder: ${message}`);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Shell / Path helpers
 // ---------------------------------------------------------------------------
@@ -49,11 +83,22 @@ function assertTauriAvailable(feature: string) {
  * Opens a file using the system default application.
  * @param path - Absolute path to the file
  */
-export async function openFile(path: string): Promise<void> {
+export async function openFile(path: string): Promise<'opened' | 'revealed'> {
+  assertTauriAvailable('Shell open');
   try {
-    await openShell(path);
+    await openShell(toFileUrl(path));
+    return 'opened';
   } catch (err) {
-    console.error('[tauri-api] openFile error:', err);
+    // If the OS has no default handler (common for .evtx on macOS),
+    // fall back to revealing it in Finder/Explorer.
+    try {
+      await revealInFolder(path);
+      return 'revealed';
+    } catch (err2) {
+      const message = err instanceof Error ? err.message : String(err);
+      const message2 = err2 instanceof Error ? err2.message : String(err2);
+      throw new Error(`Failed to open file: ${message}; fallback failed: ${message2}`);
+    }
   }
 }
 
@@ -62,12 +107,14 @@ export async function openFile(path: string): Promise<void> {
  * @param path - Absolute path to the file
  */
 export async function openFolder(path: string): Promise<void> {
+  assertTauriAvailable('Shell open');
   try {
     // Strip the filename to get the directory path
     const folderPath = path.replace(/[\\/][^\\/]+$/, '');
-    await openShell(folderPath);
+    await openShell(toFileUrl(folderPath));
   } catch (err) {
-    console.error('[tauri-api] openFolder error:', err);
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`Failed to open folder: ${message}`);
   }
 }
 
@@ -85,19 +132,19 @@ export async function openFolder(path: string): Promise<void> {
 export async function openFolderDialog(): Promise<string | null> {
   assertTauriAvailable('Folder picker');
   try {
-    const result = await open({
-      directory: true,
-      multiple: false,
-    });
-
-    if (result === null) {
-      return null;
-    }
-
-    return Array.isArray(result) ? result[0] : result;
+    // Prefer backend-driven dialog for reliability across platforms.
+    return await invoke<string | null>('select_directory');
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`Failed to open folder picker: ${message}`);
+    // Fallback to the JS dialog API if the command fails for any reason.
+    try {
+      const result = await open({ directory: true, multiple: false });
+      if (result === null) return null;
+      return Array.isArray(result) ? result[0] : result;
+    } catch (err2) {
+      const message2 = err2 instanceof Error ? err2.message : String(err2);
+      throw new Error(`Failed to open folder picker: ${message}; fallback failed: ${message2}`);
+    }
   }
 }
 
@@ -133,33 +180,23 @@ export async function listEvtxInDir(path: string, recursive: boolean = true): Pr
 export async function openEvtxFiles(): Promise<string[]> {
   assertTauriAvailable('File picker');
   try {
-    const result = await open({
-      // Allow picking multiple files at once to batch-load several logs
-      multiple: true,
-      filters: [
-        {
-          name: 'Event Log',
-          extensions: ['evtx'],
-        },
-      ],
-    });
-
-    // Tauri returns null when dialog is cancelled
-    if (result === null) {
-      return [];
-    }
-
-    // Normalize: open() returns string | string[] depending on `multiple`
-    // Since multiple: true, it should always be string[] — but guard anyway
-    if (Array.isArray(result)) {
-      return result;
-    }
-
-    // Single string fallback (shouldn't happen with multiple: true, but be safe)
-    return [result];
+    // Prefer backend-driven dialog for reliability across platforms.
+    return await invoke<string[]>('select_evtx_files');
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`Failed to open file picker: ${message}`);
+    // Fallback to the JS dialog API if the command fails for any reason.
+    try {
+      const result = await open({
+        multiple: true,
+        filters: [{ name: 'Event Log', extensions: ['evtx'] }],
+      });
+      if (result === null) return [];
+      if (Array.isArray(result)) return result;
+      return [result];
+    } catch (err2) {
+      const message2 = err2 instanceof Error ? err2.message : String(err2);
+      throw new Error(`Failed to open file picker: ${message}; fallback failed: ${message2}`);
+    }
   }
 }
 
@@ -173,22 +210,21 @@ export async function openEvtxFiles(): Promise<string[]> {
 export async function saveFileDialog(defaultName: string): Promise<string | null> {
   assertTauriAvailable('Save dialog');
   try {
-    const result = await save({
-      // Append .csv so the file picker shows the correct extension suggestion
-      defaultPath: `${defaultName}.csv`,
-      filters: [
-        {
-          name: 'CSV',
-          extensions: ['csv'],
-        },
-      ],
-    });
-
-    // save() returns null on cancel
-    return result ?? null;
+    // Prefer backend-driven dialog for reliability across platforms.
+    return await invoke<string | null>('select_save_csv', { default_name: defaultName });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`Failed to open save dialog: ${message}`);
+    // Fallback to the JS dialog API if the command fails for any reason.
+    try {
+      const result = await save({
+        defaultPath: `${defaultName}.csv`,
+        filters: [{ name: 'CSV', extensions: ['csv'] }],
+      });
+      return result ?? null;
+    } catch (err2) {
+      const message2 = err2 instanceof Error ? err2.message : String(err2);
+      throw new Error(`Failed to open save dialog: ${message}; fallback failed: ${message2}`);
+    }
   }
 }
 
@@ -201,20 +237,21 @@ export async function saveFileDialog(defaultName: string): Promise<string | null
 export async function saveReportDialog(defaultName: string): Promise<string | null> {
   assertTauriAvailable('Save dialog');
   try {
-    const result = await save({
-      defaultPath: `${defaultName}.md`,
-      filters: [
-        {
-          name: 'Markdown',
-          extensions: ['md'],
-        },
-      ],
-    });
-
-    return result ?? null;
+    // Prefer backend-driven dialog for reliability across platforms.
+    return await invoke<string | null>('select_save_md', { default_name: defaultName });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`Failed to open save dialog: ${message}`);
+    // Fallback to the JS dialog API if the command fails for any reason.
+    try {
+      const result = await save({
+        defaultPath: `${defaultName}.md`,
+        filters: [{ name: 'Markdown', extensions: ['md'] }],
+      });
+      return result ?? null;
+    } catch (err2) {
+      const message2 = err2 instanceof Error ? err2.message : String(err2);
+      throw new Error(`Failed to open save dialog: ${message}; fallback failed: ${message2}`);
+    }
   }
 }
 

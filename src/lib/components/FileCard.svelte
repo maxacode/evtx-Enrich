@@ -110,6 +110,10 @@
   /** Timer handle for auto-clearing the success message */
   let successTimer: ReturnType<typeof setTimeout> | null = null;
 
+  /** Brief message for header actions (Open File / Open Folder) */
+  let actionMessage: { text: string; isError: boolean } | null = null;
+  let actionTimer: ReturnType<typeof setTimeout> | null = null;
+
   // -------------------------------------------------------------------------
   // Helpers
   // -------------------------------------------------------------------------
@@ -132,6 +136,35 @@
     successTimer = setTimeout(() => {
       successMessage = null;
     }, 4000);
+  }
+
+  function showActionMessage(text: string, isError: boolean) {
+    actionMessage = { text, isError };
+    if (actionTimer) clearTimeout(actionTimer);
+    actionTimer = setTimeout(() => {
+      actionMessage = null;
+    }, 4000);
+  }
+
+  async function handleOpenFile() {
+    try {
+      const result = await openFile(entry.path);
+      showActionMessage(
+        result === 'opened' ? 'Opened source file.' : 'No default app found — revealed file in folder.',
+        false
+      );
+    } catch (err) {
+      showActionMessage(err instanceof Error ? err.message : String(err), true);
+    }
+  }
+
+  async function handleOpenFolder() {
+    try {
+      await openFolder(entry.path);
+      showActionMessage('Opened containing folder.', false);
+    } catch (err) {
+      showActionMessage(err instanceof Error ? err.message : String(err), true);
+    }
   }
 
   /**
@@ -314,8 +347,8 @@
       <div class="header-actions">
         <button
           class="action-btn"
-          on:click={() => openFile(entry.path)}
-          title="Open source file in default viewer"
+          on:click={handleOpenFile}
+          title="Open source file (falls back to revealing it in the file manager)"
           aria-label="Open File"
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -326,7 +359,7 @@
         </button>
         <button
           class="action-btn"
-          on:click={() => openFolder(entry.path)}
+          on:click={handleOpenFolder}
           title="Open containing folder"
           aria-label="Open Folder"
         >
@@ -503,6 +536,27 @@
           <path d="M7 4v3.5M7 9.5v.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
         </svg>
         <span>{entry.errorMessage}</span>
+      </div>
+
+    {:else if actionMessage}
+      <div
+        class="status-area"
+        class:status-error-msg={actionMessage.isError}
+        class:status-success-msg={!actionMessage.isError}
+        role={actionMessage.isError ? 'alert' : 'status'}
+      >
+        {#if actionMessage.isError}
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <circle cx="7" cy="7" r="6" stroke="currentColor" stroke-width="1.4"/>
+            <path d="M7 4v3.5M7 9.5v.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+          </svg>
+        {:else}
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <circle cx="7" cy="7" r="6" stroke="currentColor" stroke-width="1.4"/>
+            <path d="M4.5 7l2 2 3-3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        {/if}
+        <span>{actionMessage.text}</span>
       </div>
 
     {:else if successMessage}

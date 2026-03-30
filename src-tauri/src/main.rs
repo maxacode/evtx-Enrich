@@ -333,11 +333,158 @@ fn get_signatures_info(
 
 /// Open a native directory picker and return the selected path.
 #[tauri::command]
-async fn select_directory() -> Result<Option<String>, String> {
+async fn select_directory(window: tauri::Window) -> Result<Option<String>, String> {
     use tauri::api::dialog::blocking::FileDialogBuilder;
     
-    let path = FileDialogBuilder::new().pick_folder();
+    if cfg!(debug_assertions) {
+        eprintln!("[dialog] select_directory invoked");
+    }
+    let path = FileDialogBuilder::new()
+        .set_parent(&window)
+        .pick_folder();
+    if cfg!(debug_assertions) && path.is_none() {
+        eprintln!("[dialog] select_directory: dialog returned None (cancelled or failed)");
+    }
     Ok(path.map(|p| p.to_string_lossy().to_string()))
+}
+
+/// Open a native file picker and return selected .evtx files.
+#[tauri::command]
+async fn select_evtx_files(window: tauri::Window) -> Result<Vec<String>, String> {
+    use tauri::api::dialog::blocking::FileDialogBuilder;
+
+    if cfg!(debug_assertions) {
+        eprintln!("[dialog] select_evtx_files invoked");
+    }
+    let paths = FileDialogBuilder::new()
+        .set_parent(&window)
+        .add_filter("Event Log", &["evtx"])
+        .pick_files();
+    if cfg!(debug_assertions) && paths.is_none() {
+        eprintln!("[dialog] select_evtx_files: dialog returned None (cancelled or failed)");
+    }
+
+    Ok(paths
+        .unwrap_or_default()
+        .into_iter()
+        .map(|p| p.to_string_lossy().to_string())
+        .collect())
+}
+
+/// Open a native save dialog for a CSV file and return the chosen path.
+#[tauri::command]
+async fn select_save_csv(window: tauri::Window, default_name: String) -> Result<Option<String>, String> {
+    use tauri::api::dialog::blocking::FileDialogBuilder;
+
+    if cfg!(debug_assertions) {
+        eprintln!("[dialog] select_save_csv invoked (default_name={})", default_name);
+    }
+
+    let file_name = if default_name.to_lowercase().ends_with(".csv") {
+        default_name
+    } else {
+        format!("{}.csv", default_name)
+    };
+
+    let path = FileDialogBuilder::new()
+        .set_parent(&window)
+        .set_file_name(&file_name)
+        .add_filter("CSV", &["csv"])
+        .save_file();
+
+    if cfg!(debug_assertions) && path.is_none() {
+        eprintln!("[dialog] select_save_csv: dialog returned None (cancelled or failed)");
+    }
+
+    Ok(path.map(|p| p.to_string_lossy().to_string()))
+}
+
+/// Open a native save dialog for a Markdown file and return the chosen path.
+#[tauri::command]
+async fn select_save_md(window: tauri::Window, default_name: String) -> Result<Option<String>, String> {
+    use tauri::api::dialog::blocking::FileDialogBuilder;
+
+    if cfg!(debug_assertions) {
+        eprintln!("[dialog] select_save_md invoked (default_name={})", default_name);
+    }
+
+    let file_name = if default_name.to_lowercase().ends_with(".md") {
+        default_name
+    } else {
+        format!("{}.md", default_name)
+    };
+
+    let path = FileDialogBuilder::new()
+        .set_parent(&window)
+        .set_file_name(&file_name)
+        .add_filter("Markdown", &["md"])
+        .save_file();
+
+    if cfg!(debug_assertions) && path.is_none() {
+        eprintln!("[dialog] select_save_md: dialog returned None (cancelled or failed)");
+    }
+
+    Ok(path.map(|p| p.to_string_lossy().to_string()))
+}
+
+/// Reveal the given path in the system file manager (Finder/Explorer).
+/// Best-effort cross-platform: on macOS uses `open -R <path>`, on Windows uses
+/// `explorer /select, <path>`, on Linux opens the parent folder via `xdg-open`.
+#[tauri::command]
+async fn reveal_in_folder(path: String) -> Result<(), String> {
+    use std::path::PathBuf;
+    use std::process::Command;
+
+    let path_buf = PathBuf::from(&path);
+    if !path_buf.exists() {
+        return Err(format!("Path does not exist: {}", path));
+    }
+
+    if cfg!(debug_assertions) {
+        eprintln!("[shell] reveal_in_folder invoked (path={})", path);
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let status = Command::new("open")
+            .arg("-R")
+            .arg(&path_buf)
+            .status()
+            .map_err(|e| format!("Failed to launch Finder reveal: {}", e))?;
+        if !status.success() {
+            return Err(format!("Finder reveal failed with status: {}", status));
+        }
+        return Ok(());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let status = Command::new("explorer")
+            .arg("/select,")
+            .arg(&path_buf)
+            .status()
+            .map_err(|e| format!("Failed to launch Explorer reveal: {}", e))?;
+        if !status.success() {
+            return Err(format!("Explorer reveal failed with status: {}", status));
+        }
+        return Ok(());
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let folder = path_buf
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or(path_buf);
+        let status = Command::new("xdg-open")
+            .arg(&folder)
+            .status()
+            .map_err(|e| format!("Failed to launch file manager: {}", e))?;
+        if !status.success() {
+            return Err(format!("File manager reveal failed with status: {}", status));
+        }
+        return Ok(());
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -391,6 +538,10 @@ fn main() {
             save_app_state,
             load_app_state,
             select_directory,
+            select_evtx_files,
+            select_save_csv,
+            select_save_md,
+            reveal_in_folder,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

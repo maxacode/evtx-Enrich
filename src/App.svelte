@@ -212,12 +212,16 @@
   async function handleAddFolder(): Promise<void> {
     let dirPath: string | null = null;
     try {
+      showFileToast('Opening folder picker…');
       dirPath = await openFolderDialog();
     } catch (err) {
       showFileToast(`⚠ ${err instanceof Error ? err.message : String(err)}`);
       return;
     }
-    if (!dirPath) return;
+    if (!dirPath) {
+      showFileToast('No folder selected (cancelled or dialog failed to open).');
+      return;
+    }
 
     try {
       const paths = await listEvtxInDir(dirPath, true);
@@ -244,13 +248,17 @@
   async function handleAddFiles(): Promise<void> {
     let paths: string[] = [];
     try {
+      showFileToast('Opening file picker…');
       paths = await openEvtxFiles();
     } catch (err) {
       showFileToast(`⚠ ${err instanceof Error ? err.message : String(err)}`);
       return;
     }
 
-    if (paths.length === 0) return; // Dialog was cancelled
+    if (paths.length === 0) {
+      showFileToast('No files selected (cancelled or dialog failed to open).');
+      return;
+    }
 
     // Create a Set of already-loaded paths for O(1) dedup check
     const existingPaths = new Set(files.map((f) => f.path));
