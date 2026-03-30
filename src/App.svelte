@@ -44,8 +44,18 @@
   import FileCard from './lib/components/FileCard.svelte';
   import FilterPanel from './lib/components/FilterPanel.svelte';
   import { openEvtxFiles, reloadSignatures, getSignaturesInfo } from './lib/tauri-api';
+  import {
+    openEvtxFiles,
+    openFolderDialog,
+    listEvtxInDir,
+    reloadSignatures,
+    getSignaturesInfo,
+    parseEvtx,
+    exportCsv,
+    saveFileDialog,
+  } from './lib/tauri-api';
   import { defaultFilters } from './lib/types';
-  import type { FileEntry } from './lib/types';
+  import type { EventRecord, FileEntry } from './lib/types';
 
   // -------------------------------------------------------------------------
   // Application state
@@ -82,6 +92,19 @@
   let refreshToastTimer: ReturnType<typeof setTimeout> | null = null;
 
   /** Whether a drag-over is currently in progress on the window.
+  /** True while a combined single-CSV export is in progress */
+  let exportingAll = false;
+
+  /** Toast message shown briefly after an Export All action */
+  let exportAllToast: string | null = null;
+  let exportAllToastTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Toast message for file/folder picker errors */
+  let fileToast: string | null = null;
+  let fileToastTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * Whether a drag-over is currently in progress on the window.
    * Used to show a visual overlay/indication that drop is supported.
    */
   let isDragging: boolean = false;
@@ -139,7 +162,18 @@
     cleanupDragOver?.();
     cleanupDragLeave?.();
     cleanupDrop?.();
+    if (refreshToastTimer) clearTimeout(refreshToastTimer);
+    if (exportAllToastTimer) clearTimeout(exportAllToastTimer);
+    if (fileToastTimer) clearTimeout(fileToastTimer);
   });
+
+  function showFileToast(message: string) {
+    fileToast = message;
+    if (fileToastTimer) clearTimeout(fileToastTimer);
+    fileToastTimer = setTimeout(() => {
+      fileToast = null;
+    }, 6000);
+  }
 
   /**
    * Reload signatures.json from disk via the Rust reload_signatures command.
@@ -163,8 +197,92 @@
   }
 
   // -------------------------------------------------------------------------
+  // Export all files into a single CSV
+  // -------------------------------------------------------------------------
+
+  async function handleExportAllCsv(): Promise<void> {
+    if (files.length === 0 || exportingAll) return;
+
+    exportingAll = true;
+    exportAllToast = null;
+    try {
+      const stamp = new Date().toISOString().slice(0, 10);
+      const outputPath = await saveFileDialog(`combined_export_${stamp}`);
+      if (!outputPath) return;
+
+      const combined: EventRecord[] = [];
+
+      for (const entry of files) {
+        const recs = await parseEvtx(entry.path, entry.filters);
+        for (const r of recs) {
+          // Tag each row with origin so a merged export stays attributable.
+          if (!r.extra_fields.source_file) {
+            r.extra_fields.source_file = entry.name;
+          }
+        }
+        combined.push(...recs);
+      }
+
+      // Stable sort by timestamp (ISO 8601 strings sort lexicographically).
+      combined.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+
+      // Export without LLM optimization (we want full fidelity for CSV).
+      await exportCsv(combined, outputPath, defaultFilters());
+
+      exportAllToast = `✓ Exported ${combined.length.toLocaleString()} rows from ${files.length} file${files.length !== 1 ? 's' : ''}`;
+      if (exportAllToastTimer) clearTimeout(exportAllToastTimer);
+      exportAllToastTimer = setTimeout(() => {
+        exportAllToast = null;
+      }, 4000);
+    } catch (err) {
+      exportAllToast = `⚠ Export failed: ${err instanceof Error ? err.message : String(err)}`;
+      if (exportAllToastTimer) clearTimeout(exportAllToastTimer);
+      exportAllToastTimer = setTimeout(() => {
+        exportAllToast = null;
+      }, 6000);
+    } finally {
+      exportingAll = false;
+    }
+  }
+
+  // -------------------------------------------------------------------------
   // Adding files
   // -------------------------------------------------------------------------
+
+  /**
+   * Opens a native directory picker and recursively finds all .evtx files.
+   * Adds all discovered files to the list.
+   */
+  async function handleAddFolder(): Promise<void> {
+    let dirPath: string | null = null;
+    try {
+      showFileToast('Opening folder picker…');
+      dirPath = await openFolderDialog();
+    } catch (err) {
+      showFileToast(`⚠ ${err instanceof Error ? err.message : String(err)}`);
+      return;
+    }
+    if (!dirPath) {
+      showFileToast('No folder selected (cancelled or dialog failed to open).');
+      return;
+    }
+
+    try {
+      const paths = await listEvtxInDir(dirPath, true);
+      if (paths.length === 0) return;
+
+      const existingPaths = new Set(files.map((f) => f.path));
+      const newEntries = paths
+        .filter((p) => !existingPaths.has(p))
+        .map((p) => createFileEntry(p));
+
+      if (newEntries.length > 0) {
+        files = [...files, ...newEntries];
+      }
+    } catch (err) {
+      showFileToast(`⚠ ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
 
   /**
    * Opens a multi-select file picker filtered to .evtx files.
@@ -172,9 +290,19 @@
    * Deduplicates: won't add a file that's already loaded (by path).
    */
   async function handleAddFiles(): Promise<void> {
-    const paths = await openEvtxFiles();
+    let paths: string[] = [];
+    try {
+      showFileToast('Opening file picker…');
+      paths = await openEvtxFiles();
+    } catch (err) {
+      showFileToast(`⚠ ${err instanceof Error ? err.message : String(err)}`);
+      return;
+    }
 
-    if (paths.length === 0) return; // Dialog was cancelled
+    if (paths.length === 0) {
+      showFileToast('No files selected (cancelled or dialog failed to open).');
+      return;
+    }
 
     // Create a Set of already-loaded paths for O(1) dedup check
     const existingPaths = new Set(files.map((f) => f.path));
@@ -373,6 +501,14 @@
         Add Files
       </button>
 
+      <!-- Add Folder button -->
+      <button class="btn btn-secondary" on:click={handleAddFolder}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        Add Folder
+      </button>
+
       <!-- Divider -->
       <div class="toolbar-divider" aria-hidden="true"></div>
 
@@ -416,11 +552,34 @@
           <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon>
         </svg>
         Global Filters
+      <!-- Export all loaded files into a single CSV -->
+      <button
+        class="btn btn-secondary"
+        on:click={handleExportAllCsv}
+        disabled={files.length === 0 || exportingAll}
+        title="Parse all loaded files (with their current filters) and export a single combined CSV"
+      >
+        {#if exportingAll}
+          <span class="btn-mini-spinner" aria-hidden="true"></span>
+          Exporting all…
+        {:else}
+          Export All CSV
+        {/if}
       </button>
     </div>
 
     <!-- Signatures status + Refresh button -->
     <div class="toolbar-right">
+      {#if fileToast}
+        <span class="refresh-toast" class:toast-error={fileToast.startsWith('⚠')}>
+          {fileToast}
+        </span>
+      {/if}
+      {#if exportAllToast}
+        <span class="refresh-toast" class:toast-error={exportAllToast.startsWith('⚠')}>
+          {exportAllToast}
+        </span>
+      {/if}
       {#if refreshingSignatures && signaturesInfo.count === 0}
         <span class="sig-status sig-loading">
           <span class="btn-mini-spinner" aria-hidden="true"></span>
