@@ -41,9 +41,9 @@
 
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
+  import { writeTextFile } from '@tauri-apps/api/fs';
   import FileCard from './lib/components/FileCard.svelte';
   import FilterPanel from './lib/components/FilterPanel.svelte';
-  import { openEvtxFiles, reloadSignatures, getSignaturesInfo } from './lib/tauri-api';
   import {
     openEvtxFiles,
     openFolderDialog,
@@ -53,6 +53,8 @@
     parseEvtx,
     exportCsv,
     saveFileDialog,
+    enrichRecords,
+    runEnrichmentCheck,
   } from './lib/tauri-api';
   import { defaultFilters } from './lib/types';
   import type { EventRecord, FileEntry } from './lib/types';
@@ -200,20 +202,27 @@
   // Export all files into a single CSV
   // -------------------------------------------------------------------------
 
-  async function handleExportAllCsv(): Promise<void> {
+  async function runExportAll(doEnrich: boolean): Promise<void> {
     if (files.length === 0 || exportingAll) return;
 
     exportingAll = true;
     exportAllToast = null;
     try {
       const stamp = new Date().toISOString().slice(0, 10);
-      const outputPath = await saveFileDialog(`combined_export_${stamp}`);
+      const defaultName = `combined_export_${stamp}${doEnrich ? '_enriched' : ''}`;
+      const outputPath = await saveFileDialog(defaultName);
       if (!outputPath) return;
 
       const combined: EventRecord[] = [];
 
       for (const entry of files) {
-        const recs = await parseEvtx(entry.path, entry.filters);
+        let recs = await parseEvtx(entry.path, entry.filters);
+        
+        // Enrich individual file's records before combining if requested
+        if (doEnrich) {
+          recs = await enrichRecords(recs);
+        }
+
         for (const r of recs) {
           // Tag each row with origin so a merged export stays attributable.
           if (!r.extra_fields.source_file) {
@@ -229,7 +238,16 @@
       // Export without LLM optimization (we want full fidelity for CSV).
       await exportCsv(combined, outputPath, defaultFilters());
 
-      exportAllToast = `✓ Exported ${combined.length.toLocaleString()} rows from ${files.length} file${files.length !== 1 ? 's' : ''}`;
+      // If global report toggle is on, run enrichment check on the combined set
+      if (runEnrichment) {
+        const reportMarkdown = await runEnrichmentCheck(combined);
+        const reportPath = outputPath.replace(/\.csv$/i, '_report.md');
+        await writeTextFile(reportPath, reportMarkdown);
+      }
+
+      const enrichNote = doEnrich ? ' (enriched)' : '';
+      const reportNote = runEnrichment ? ' + report.md' : '';
+      exportAllToast = `✓ Exported ${combined.length.toLocaleString()} rows from ${files.length} file${files.length !== 1 ? 's' : ''}${enrichNote}${reportNote}`;
       if (exportAllToastTimer) clearTimeout(exportAllToastTimer);
       exportAllToastTimer = setTimeout(() => {
         exportAllToast = null;
@@ -243,6 +261,14 @@
     } finally {
       exportingAll = false;
     }
+  }
+
+  async function handleExportAllCsv(): Promise<void> {
+    await runExportAll(false);
+  }
+
+  async function handleEnrichExportAll(): Promise<void> {
+    await runExportAll(true);
   }
 
   // -------------------------------------------------------------------------
@@ -552,20 +578,45 @@
           <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon>
         </svg>
         Global Filters
-      <!-- Export all loaded files into a single CSV -->
-      <button
-        class="btn btn-secondary"
-        on:click={handleExportAllCsv}
-        disabled={files.length === 0 || exportingAll}
-        title="Parse all loaded files (with their current filters) and export a single combined CSV"
-      >
-        {#if exportingAll}
-          <span class="btn-mini-spinner" aria-hidden="true"></span>
-          Exporting all…
-        {:else}
-          Export All CSV
-        {/if}
       </button>
+      <!-- Export all loaded files into a single CSV -->
+      <div class="btn-group">
+        <button
+          class="btn btn-secondary"
+          on:click={handleExportAllCsv}
+          disabled={files.length === 0 || exportingAll}
+          title="Parse all loaded files (with their current filters) and export a single combined CSV"
+        >
+          {#if exportingAll}
+            <span class="btn-mini-spinner" aria-hidden="true"></span>
+            Exporting…
+          {:else}
+            <svg width="13" height="13" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <path d="M7 1v8M4 6l3 3 3-3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M2 10v2a1 1 0 001 1h8a1 1 0 001-1v-2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+            </svg>
+            Export All CSV
+          {/if}
+        </button>
+
+        <button
+          class="btn btn-secondary"
+          on:click={handleEnrichExportAll}
+          disabled={files.length === 0 || exportingAll}
+          title="Deduplicate, clean TaskContent XML, and export all loaded files into a single combined CSV"
+        >
+          {#if exportingAll}
+            <span class="btn-mini-spinner" aria-hidden="true"></span>
+            Exporting…
+          {:else}
+            <svg width="13" height="13" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <path d="M2 12l8-8M7 2l1 2M12 7l-2-1M9 9l2 1M3 5l-1-2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              <circle cx="10" cy="4" r="1.2" fill="currentColor" opacity="0.7"/>
+            </svg>
+            Enrich & Export All
+          {/if}
+        </button>
+      </div>
     </div>
 
     <!-- Signatures status + Refresh button -->
@@ -991,6 +1042,15 @@
     border-top-color: var(--color-text-muted);
     animation: spin 0.8s linear infinite;
     flex-shrink: 0;
+  }
+
+  /* -------------------------------------------------------------------------
+     Button groups
+     ------------------------------------------------------------------------- */
+  .btn-group {
+    display: flex;
+    gap: 8px;
+    align-items: center;
   }
 
   /* -------------------------------------------------------------------------
