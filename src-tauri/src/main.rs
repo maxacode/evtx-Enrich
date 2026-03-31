@@ -504,26 +504,6 @@ fn main() {
                 signatures_path: Mutex::new(path),
             });
 
-            // ---------------------------------------------------------------
-            // Splash screen — show for 500 ms then swap to main window
-            // ---------------------------------------------------------------
-            let handle = app.handle();
-            std::thread::spawn(move || {
-                // Wait 500 ms on a background thread (never block the main thread)
-                std::thread::sleep(Duration::from_millis(500));
-
-                // Show the main window
-                if let Some(main_win) = handle.get_window("main") {
-                    let _ = main_win.show();
-                    let _ = main_win.set_focus();
-                }
-
-                // Close the splash window
-                if let Some(splash_win) = handle.get_window("splash") {
-                    let _ = splash_win.close();
-                }
-            });
-
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

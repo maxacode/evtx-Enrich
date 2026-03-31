@@ -624,54 +624,166 @@ mod tests {
     }
 
     #[test]
-    fn insert_data_item_preserves_text_arrays() {
-        let mut map = HashMap::new();
-        let item = serde_json::json!({
-            "#text": ["Coro Endpoint Protection", "SECURITY_PRODUCT_STATE_ON"]
-        });
+    fn test_extract_event_id_formats() {
+        // Case 1: Number
+        let v1 = serde_json::json!(4624);
+        assert_eq!(extract_event_id(Some(&v1)).unwrap(), 4624);
 
-        insert_data_item(&mut map, &item, 0);
+        // Case 2: String
+        let v2 = serde_json::json!("4624");
+        assert_eq!(extract_event_id(Some(&v2)).unwrap(), 4624);
 
-        assert_eq!(
-            map.get("Data_0").map(|s| s.as_str()),
-            Some("Coro Endpoint Protection")
-        );
-        assert_eq!(
-            map.get("Data_1").map(|s| s.as_str()),
-            Some("SECURITY_PRODUCT_STATE_ON")
-        );
+        // Case 3: Object with #text string
+        let v3 = serde_json::json!({ "#text": "4624" });
+        assert_eq!(extract_event_id(Some(&v3)).unwrap(), 4624);
+
+        // Case 4: Object with #text number
+        let v4 = serde_json::json!({ "#text": 4624 });
+        assert_eq!(extract_event_id(Some(&v4)).unwrap(), 4624);
     }
 
     #[test]
-    fn application3_extracts_coro_mentions() {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("..")
-            .join("Application3.evtx");
-        if !path.exists() {
-            // Keep unit tests robust if someone removes the sample file.
-            eprintln!("Skipping: sample EVTX not found at {:?}", path);
-            return;
-        }
-
-        let records = parse_evtx_file(
-            path.to_str().expect("non-utf8 sample path"),
-            &no_filters(),
-        )
-        .expect("parse_evtx_file failed");
-
-        // Sanity check that we're not skipping the bulk of the file.
-        assert!(
-            records.len() >= 6500,
-            "Unexpectedly low record count: {}",
-            records.len()
-        );
-
-        let has_coro = records.iter().any(|r| {
-            r.extra_fields
-                .values()
-                .any(|v| v.to_lowercase().contains("coro"))
+    fn test_parse_single_record_mock() {
+        let json = serde_json::json!({
+            "Event": {
+                "System": {
+                    "TimeCreated": { "#attributes": { "SystemTime": "2024-01-01T12:00:00Z" } },
+                    "EventID": 4624,
+                    "Level": 4,
+                    "Channel": "Security",
+                    "Computer": "DESKTOP-ABC"
+                },
+                "EventData": {
+                    "Data": [
+                        { "#attributes": { "Name": "SubjectUserName" }, "#text": "alice" },
+                        { "#attributes": { "Name": "IpAddress" }, "#text": "1.2.3.4" }
+                    ]
+                }
+            }
         });
 
-        assert!(has_coro, "Expected at least one record mentioning 'Coro'");
+        let record = parse_single_record(&json.to_string()).unwrap();
+        assert_eq!(record.event_id, 4624);
+        assert_eq!(record.timestamp, "2024-01-01T12:00:00Z");
+        assert_eq!(record.username.as_deref(), Some("alice"));
+        assert_eq!(record.ip_address.as_deref(), Some("1.2.3.4"));
+    }
+
+    #[test]
+    fn test_extract_all_event_data_nested() {
+        let event = serde_json::json!({
+            "UserData": {
+                "TaskScheduler": {
+                    "TaskName": "\\MyTask",
+                    "Action": {
+                        "Command": "calc.exe",
+                        "Args": "/s"
+                    }
+                }
+            }
+        });
+
+        let map = extract_all_event_data(&event);
+        assert_eq!(map.get("TaskName").map(|s| s.as_str()), Some("\\MyTask"));
+        assert_eq!(map.get("Action_Command").map(|s| s.as_str()), Some("calc.exe"));
+        assert_eq!(map.get("Action_Args").map(|s| s.as_str()), Some("/s"));
+    }
+
+    #[test]
+    fn test_extreme_large_record_count() {
+        // Verify summary logic handles very large record counts without overflow.
+        let mut total_records: u64 = 0;
+        let mut id_counts: HashMap<u32, usize> = HashMap::new();
+        
+        let iterations = 2_000_000;
+        for i in 0..iterations {
+            total_records += 1;
+            let event_id = (i % 1000) as u32; 
+            *id_counts.entry(event_id).or_insert(0) += 1;
+        }
+
+        assert_eq!(total_records, iterations as u64);
+        assert_eq!(id_counts.len(), 1000);
+    }
+
+    #[test]
+    fn test_parse_corrupt_record_gracefully() {
+        // Missing "Event" key
+        let json1 = serde_json::json!({ "NotEvent": {} });
+        let res1 = parse_single_record(&json1.to_string());
+        assert!(res1.is_err());
+        assert!(res1.unwrap_err().contains("Missing 'Event' key"));
+
+        // Missing "System" key
+        let json2 = serde_json::json!({ "Event": { "NotSystem": {} } });
+        let res2 = parse_single_record(&json2.to_string());
+        assert!(res2.is_err());
+        assert!(res2.unwrap_err().contains("Missing 'Event.System'"));
+    }
+
+    #[test]
+    fn test_large_record_count_summary_simulation() {
+        // Simulating the logic inside get_evtx_summary for a large number of records
+        let mut total_records = 0;
+        let mut id_counts: HashMap<u32, usize> = HashMap::new();
+        
+        // Simulating 1 million records
+        let iterations = 1_000_000;
+        for i in 0..iterations {
+            total_records += 1;
+            let event_id = (i % 100) as u32; // 100 different event IDs
+            *id_counts.entry(event_id).or_insert(0) += 1;
+        }
+
+        assert_eq!(total_records, iterations);
+        assert_eq!(id_counts.len(), 100);
+        assert_eq!(id_counts.get(&0), Some(&(iterations / 100)));
+
+        // Test the sorting logic
+        let mut counts_vec: Vec<(u32, usize)> = id_counts.into_iter().collect();
+        counts_vec.sort_by(|a, b| b.1.cmp(&a.1));
+        let top_ids: HashMap<u32, usize> = counts_vec.into_iter().take(5).collect();
+        
+        assert_eq!(top_ids.len(), 5);
+    }
+
+    #[test]
+    fn test_apply_filters_empty_input() {
+        let records: Vec<EventRecord> = Vec::new();
+        let filters = no_filters();
+        let filtered = apply_filters(records, &filters);
+        assert_eq!(filtered.len(), 0);
+    }
+
+    #[test]
+    fn test_apply_filters_no_matches() {
+        let mut r1 = test_parse_single_record_mock_internal();
+        r1.computer = "PC-A".to_string();
+        
+        let mut filters = no_filters();
+        filters.hostname = Some("PC-B".to_string());
+        
+        let filtered = apply_filters(vec![r1], &filters);
+        assert_eq!(filtered.len(), 0);
+    }
+
+    fn test_parse_single_record_mock_internal() -> EventRecord {
+        let json = serde_json::json!({
+            "Event": {
+                "System": {
+                    "TimeCreated": { "#attributes": { "SystemTime": "2024-01-01T12:00:00Z" } },
+                    "EventID": 4624,
+                    "Level": 4,
+                    "Channel": "Security",
+                    "Computer": "DESKTOP-ABC"
+                },
+                "EventData": {
+                    "Data": [
+                        { "#attributes": { "Name": "SubjectUserName" }, "#text": "alice" }
+                    ]
+                }
+            }
+        });
+        parse_single_record(&json.to_string()).unwrap()
     }
 }

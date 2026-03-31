@@ -1,0 +1,60 @@
+name: Release
+on:
+  push:
+    branches:
+      - main
+      - dev
+
+jobs:
+  release:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies (macOS)
+        if: matrix.platform == 'macos-latest'
+        run: |
+          # No extra libs needed for standard Tauri on macOS
+          echo "macOS dependencies already satisfied"
+
+      - name: Install dependencies (Windows)
+        if: matrix.platform == 'windows-latest'
+        run: |
+          # No extra libs needed for standard Tauri on Windows
+          echo "Windows dependencies already satisfied"
+
+      - name: Install frontend dependencies
+        run: npm install
+
+      - name: Build and Release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          tagName: v__VERSION__-${{ github.sha }} # Use commit SHA since we are not using git tags directly
+          releaseName: 'evtx-to-csv v__VERSION__ (Commit: ${{ github.sha }})'
+          releaseBody: 'Automated build from push to main/dev.'
+          releaseDraft: true
+          prerelease: true

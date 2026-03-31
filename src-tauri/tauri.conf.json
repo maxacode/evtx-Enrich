@@ -51,27 +51,13 @@
     "macOSPrivateApi": true,
     "windows": [
       {
-        "label": "splash",
-        "title": "evtx-to-csv",
-        "url": "splashscreen.html",
-        "width": 400,
-        "height": 420,
-        "resizable": false,
-        "fullscreen": false,
-        "decorations": false,
-        "transparent": true,
-        "alwaysOnTop": true,
-        "center": true,
-        "visible": true
-      },
-      {
         "label": "main",
         "title": "evtx-to-csv",
         "width": 1280,
         "height": 860,
         "resizable": true,
         "fullscreen": false,
-        "visible": false,
+        "visible": true,
         "center": true
       }
     ]

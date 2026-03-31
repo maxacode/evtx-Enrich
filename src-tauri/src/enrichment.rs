@@ -919,3 +919,273 @@ fn has_ir_value(r: &EventRecord) -> bool {
         || r.logon_type.is_some() || r.parent_process.is_some() || r.workstation.is_some()
         || r.auth_package.is_some() || !r.extra_fields.is_empty()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn create_mock_record() -> EventRecord {
+        EventRecord {
+            timestamp: "2024-01-01T12:00:00Z".to_string(),
+            event_id: 4624,
+            level: "Information".to_string(),
+            channel: "Security".to_string(),
+            computer: "DESKTOP-ABC".to_string(),
+            username: Some("alice".to_string()),
+            domain: Some("WORKGROUP".to_string()),
+            process_id: Some("1234".to_string()),
+            process_name: Some("explorer.exe".to_string()),
+            ip_address: Some("192.168.1.10".to_string()),
+            port: Some("443".to_string()),
+            logon_type: Some("2".to_string()),
+            command_line: None,
+            parent_process: None,
+            target_username: None,
+            target_domain: None,
+            workstation: None,
+            auth_package: None,
+            extra_fields: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn test_compile_pattern_specs() {
+        let specs = vec![
+            PatternSpec {
+                name: "test_rule".into(),
+                risk: "High".into(),
+                tactic: "Execution".into(),
+                mitre_id: "T1059".into(),
+                description: "Test description".into(),
+                regex: "powershell".into(),
+            }
+        ];
+        let compiled = compile_pattern_specs(&specs);
+        assert_eq!(compiled.len(), 1);
+        assert_eq!(compiled[0].name, "test_rule");
+        assert!(compiled[0].regex.is_match("powershell.exe -enc ..."));
+    }
+
+    #[test]
+    fn test_run_enrichment_pattern_match() {
+        let mut r1 = create_mock_record();
+        r1.command_line = Some("powershell.exe -ExecutionPolicy Bypass".to_string());
+        
+        let specs = vec![
+            PatternSpec {
+                name: "powershell_bypass".into(),
+                risk: "High".into(),
+                tactic: "Execution".into(),
+                mitre_id: "T1059.001".into(),
+                description: "Powershell with bypass detected".into(),
+                regex: "(?i)powershell.*-ExecutionPolicy\\s+Bypass".into(),
+            }
+        ];
+
+        let report = run_enrichment(&[r1], &specs);
+        assert!(report.contains("powershell_bypass"));
+        assert!(report.contains("🟠 [HIGH]"));
+    }
+
+    #[test]
+    fn test_enrich_records_dedup() {
+        let r1 = create_mock_record();
+        let r2 = r1.clone();
+        
+        let records = vec![r1, r2];
+        let enriched = enrich_records(records);
+        assert_eq!(enriched.len(), 1);
+    }
+
+    #[test]
+    fn test_enrich_records_xml_cleanup() {
+        let mut r1 = create_mock_record();
+        r1.extra_fields.insert("TaskContent".to_string(), "<Task><RegistrationInfo><URI>\\MyTask</URI></RegistrationInfo></Task>".to_string());
+        
+        let enriched = enrich_records(vec![r1]);
+        let cleaned = enriched[0].extra_fields.get("TaskContent").unwrap();
+        assert!(cleaned.contains("URI:\\MyTask"));
+    }
+
+    #[test]
+    fn test_optimize_for_llm_noise_reduction() {
+        let mut r1 = create_mock_record();
+        r1.event_id = 4634; // Logoff (noise)
+        
+        let mut r2 = create_mock_record();
+        r2.event_id = 4688; // Process creation
+        r2.process_name = Some("C:\\Windows\\System32\\conhost.exe".to_string()); // noise process
+        
+        let mut r3 = create_mock_record();
+        r3.event_id = 4624;
+        r3.username = Some("NT AUTHORITY\\SYSTEM".to_string());
+        
+        let optimized = optimize_for_llm(vec![r1, r2, r3]);
+        
+        // r1 and r2 should be removed
+        assert_eq!(optimized.len(), 1);
+        // r3 username should be shortened
+        assert_eq!(optimized[0].username.as_deref().unwrap(), "SYSTEM");
+    }
+
+    #[test]
+    fn test_heuristic_recon_cluster() {
+        let mut records = Vec::new();
+        let commands = vec!["whoami", "ipconfig", "net user"];
+        
+        for (i, cmd) in commands.into_iter().enumerate() {
+            let mut r = create_mock_record();
+            r.timestamp = format!("2024-01-01T12:00:0{}Z", i);
+            r.command_line = Some(cmd.to_string());
+            r.process_id = Some("9999".to_string());
+            records.push(r);
+        }
+
+        let mut findings = Vec::new();
+        run_heuristic_checks(&records, &mut findings);
+        
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].rule_name, "heuristic_recon_cluster");
+        assert_eq!(findings[0].risk, Risk::Critical);
+    }
+
+    #[test]
+    fn test_malformed_xml_task_content() {
+        // Unclosed tags or invalid XML structure should be handled gracefully (return raw content)
+        // Here we use only unclosed tags so nothing matches.
+        let xml = "<Task><URI>\\MyTask<Command>calc.exe";
+        let res = parse_task_xml(xml);
+        assert!(res.contains("[raw xml]"));
+        
+        let xml2 = "Not XML at all";
+        let res2 = parse_task_xml(xml2);
+        assert!(res2.contains("[raw xml]"));
+    }
+
+    #[test]
+    fn test_empty_record_enrichment() {
+        // Enrichment should not crash on empty strings or missing fields
+        let mut r = create_mock_record();
+        r.username = Some("".into());
+        r.ip_address = Some("".into());
+        r.extra_fields = HashMap::new();
+        
+        let res = enrich_records(vec![r]);
+        // create_mock_record has process_id and process_name set
+        assert!(res.len() > 0); 
+        
+        // Let's clear ALL IR-relevant fields
+        let mut r2 = create_mock_record();
+        r2.username = None;
+        r2.ip_address = None;
+        r2.process_id = None;
+        r2.process_name = None;
+        r2.logon_type = None;
+        r2.extra_fields = HashMap::new();
+        
+        let res2 = enrich_records(vec![r2]);
+        assert_eq!(res2.len(), 0);
+    }
+
+    #[test]
+    fn test_parse_task_xml_malformed() {
+        // Unusual but matchable (newlines/spaces)
+        let xml1 = "<Task><URI> \n \\MyTask \n </URI></Task>";
+        let res1 = parse_task_xml(xml1);
+        assert!(res1.contains("URI:\\MyTask"));
+
+        // Malformed (unclosed URI tag) -> fallback to raw
+        let xml1_bad = "<Task><URI>\\MyTask</Task>";
+        let res1_bad = parse_task_xml(xml1_bad);
+        assert!(res1_bad.contains("[raw xml]"));
+
+        // No URI/Actions, just random stuff
+        let xml2 = "<Random><Tag>Value</Tag></Random>";
+        let res2 = parse_task_xml(xml2);
+        assert!(res2.contains("[raw xml]"));
+
+        // Empty string
+        let res3 = parse_task_xml("");
+        assert!(res3.contains("[raw xml]"));
+        
+        // Non-XML but starts with '<'
+        let res4 = parse_task_xml("< not actually xml >");
+        assert!(res4.contains("[raw xml]"));
+    }
+
+    #[test]
+    fn test_enrich_records_empty() {
+        let records: Vec<EventRecord> = Vec::new();
+        let enriched = enrich_records(records);
+        assert_eq!(enriched.len(), 0);
+    }
+
+    #[test]
+    fn test_run_enrichment_no_findings() {
+        let r1 = create_mock_record();
+        let report = run_enrichment(&[r1], &[]);
+        assert!(report.contains("✅ No suspicious activity detected"));
+    }
+
+    #[test]
+    fn test_map_logon_type_all_codes() {
+        let cases = vec![
+            ("0", "0 (System)"),
+            ("2", "2 (Interactive)"),
+            ("3", "3 (Network)"),
+            ("4", "4 (Batch)"),
+            ("5", "5 (Service)"),
+            ("7", "7 (Unlock)"),
+            ("8", "8 (NetworkCleartext)"),
+            ("9", "9 (NewCredentials)"),
+            ("10", "10 (RemoteInteractive/RDP)"),
+            ("11", "11 (CachedInteractive)"),
+            ("12", "12 (CachedRemoteInteractive)"),
+            ("13", "13 (CachedUnlock)"),
+            ("99", "99"),
+        ];
+
+        for (code, expected) in cases {
+            assert_eq!(map_logon_type(code), expected);
+        }
+    }
+
+    #[test]
+    fn test_event_id_rules_specific_cases() {
+        // Event ID 4719 - Audit Policy Change
+        let mut r4719 = create_mock_record();
+        r4719.event_id = 4719;
+        let mut findings = Vec::new();
+        run_event_id_rules(&[r4719], &mut findings);
+        assert_eq!(findings[0].rule_name, "audit_policy_changed");
+        assert!(findings[0].description.contains("Audit policy modified"));
+
+        // Event ID 4697 - Service Installed
+        let mut r4697 = create_mock_record();
+        r4697.event_id = 4697;
+        r4697.extra_fields.insert("ServiceName".to_string(), "TestService".to_string());
+        r4697.extra_fields.insert("ServiceFileName".to_string(), "C:\\Windows\\system32\\test.exe".to_string());
+        let mut findings = Vec::new();
+        run_event_id_rules(&[r4697], &mut findings);
+        assert_eq!(findings[0].rule_name, "service_installed");
+        assert_eq!(findings[0].risk, Risk::High);
+
+        // Event ID 4697 - Suspicious Service Path
+        let mut r4697_sus = create_mock_record();
+        r4697_sus.event_id = 4697;
+        r4697_sus.extra_fields.insert("ServiceFileName".to_string(), "C:\\Users\\Public\\malicious.exe".to_string());
+        let mut findings = Vec::new();
+        run_event_id_rules(&[r4697_sus], &mut findings);
+        assert_eq!(findings[0].risk, Risk::Critical);
+        assert!(findings[0].description.contains("HIGH SUSPICION"));
+
+        // Event ID 5140 - Network Share Access
+        let mut r5140 = create_mock_record();
+        r5140.event_id = 5140;
+        r5140.extra_fields.insert("ShareName".to_string(), "\\\\*\\C$".to_string());
+        let mut findings = Vec::new();
+        run_event_id_rules(&[r5140], &mut findings);
+        assert_eq!(findings[0].rule_name, "admin_share_access");
+        assert_eq!(findings[0].risk, Risk::High);
+    }
+}

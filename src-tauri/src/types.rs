@@ -177,6 +177,25 @@ pub struct FilterConfig {
     pub llm_optimized: Option<bool>,
 }
 
+impl Default for FilterConfig {
+    fn default() -> Self {
+        Self {
+            date_from: None,
+            date_to: None,
+            relative_days: None,
+            process_id: None,
+            hostname: None,
+            ip_address: None,
+            username: None,
+            keyword: None,
+            keyword_context: None,
+            custom_field_name: None,
+            custom_field_value: None,
+            llm_optimized: None,
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // PatternSpec — one regex-based enrichment rule, loaded from signatures.json.
 //
