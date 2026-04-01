@@ -73,7 +73,7 @@ jobs:
           
           echo "Verifying certificate with openssl..."
           # This will fail if the password is wrong or the file is corrupted
-          openssl pkcs12 -info -in certificate.p12 -passin pass:"$APPLE_CERTIFICATE_PASSWORD" -nokeys || echo "ERROR: openssl verification failed!"
+          openssl pkcs12 -info -in certificate.p12 -passin pass:"$APPLE_CERTIFICATE_PASSWORD" -nokeys | grep "Certificate bag" || echo "ERROR: No certificate bags found in p12!"
           
           echo "Importing certificate..."
           # Try import with explicit format and more verbose output if possible
