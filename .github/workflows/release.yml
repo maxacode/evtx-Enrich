@@ -1,4 +1,4 @@
-# Triggering new build with updated certificate secret
+# Triggering new build with 4300-char certificate secret
 name: Release
 
 on:
@@ -71,7 +71,7 @@ jobs:
           security find-certificate -a "$KEYCHAIN_PATH"
           
           echo "Dumping openssl info (no keys)..."
-          openssl pkcs12 -info -in certificate.p12 -passin pass:"$APPLE_CERTIFICATE_PASSWORD" -nokeys 2>&1 | head -n 20
+          openssl pkcs12 -info -in certificate.p12 -passin pass:"$APPLE_CERTIFICATE_PASSWORD" -nokeys -legacy 2>&1 | head -n 20
           
           rm certificate.p12
 
