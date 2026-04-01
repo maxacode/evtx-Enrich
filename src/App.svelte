@@ -44,6 +44,7 @@
   import { writeTextFile } from '@tauri-apps/api/fs';
   import FileCard from './lib/components/FileCard.svelte';
   import FilterPanel from './lib/components/FilterPanel.svelte';
+  import FeedbackDialog from './lib/components/FeedbackDialog.svelte';
   import {
     openEvtxFiles,
     openFolderDialog,
@@ -96,6 +97,9 @@
   /** Whether a drag-over is currently in progress on the window.
   /** True while a combined single-CSV export is in progress */
   let exportingAll = false;
+
+  /** Whether the feedback dialog is visible */
+  let showFeedback = false;
 
   /** Toast message shown briefly after an Export All action */
   let exportAllToast: string | null = null;
@@ -1266,6 +1270,30 @@
   }
 
   /* -------------------------------------------------------------------------
+     Feedback Button
+     ------------------------------------------------------------------------- */
+  .btn-feedback {
+    background: transparent;
+    border: 1px solid var(--color-border);
+    color: var(--color-text-dim);
+    font-size: 11px;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s;
+  }
+
+  .btn-feedback:hover {
+    color: var(--color-accent);
+    border-color: var(--color-accent);
+    background: rgba(92, 124, 250, 0.05);
+  }
+
+  /* -------------------------------------------------------------------------
      Animations
      ------------------------------------------------------------------------- */
   @keyframes spin {
@@ -1283,13 +1311,6 @@
     height: 1px;
     padding: 0;
     margin: -1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border-width: 0;
-  }
-</style>
-px;
     overflow: hidden;
     clip: rect(0, 0, 0, 0);
     white-space: nowrap;
