@@ -27,6 +27,8 @@ jobs:
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'x86_64-apple-darwin,aarch64-apple-darwin' || '' }}
 
       - name: Cache Rust build artifacts
         uses: swatinem/rust-cache@v2
@@ -60,6 +62,7 @@ jobs:
             - **Windows**: `.msi` installer
           releaseDraft: true
           prerelease: false
+          args: ${{ matrix.platform == 'macos-latest' && '--target universal-apple-darwin' || '' }}
 
       # ── dev branch: signed + notarized, published immediately as pre-release ──
       - name: Build and Release (dev)
@@ -82,3 +85,4 @@ jobs:
             Branch: `dev` | Run: #${{ github.run_number }} | Commit: ${{ github.sha }}
           releaseDraft: false
           prerelease: true
+          args: ${{ matrix.platform == 'macos-latest' && '--target universal-apple-darwin' || '' }}
