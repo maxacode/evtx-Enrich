@@ -39,15 +39,13 @@ jobs:
         run: npm install
 
       - name: Debug Identities
+        shell: bash
         run: |
           if [ "${{ matrix.platform }}" == "macos-latest" ]; then
-            # The tauri-action sets up the keychain in the next step, 
-            # so we can't easily debug it here unless we do it manually.
-            # But we can at least check what's available before.
             security find-identity -v -p codesigning || true
           fi
 
-      # ── main branch: signed + notarized, published as draft stable release ──
+      # ── main branch: build, sign, notarize ──
       - name: Build and Release (main)
         if: github.ref == 'refs/heads/main'
         uses: tauri-apps/tauri-action@v0
@@ -71,7 +69,8 @@ jobs:
             - **Windows**: `.msi` installer
           releaseDraft: true
           prerelease: false
-          args: ${{ matrix.platform == 'macos-latest' && '--target universal-apple-darwin' || '' }}
+          # Temporarily removing universal target to see if native build succeeds
+          args: ${{ matrix.platform == 'macos-latest' && '' || '' }}
 
       # ── dev branch: signed + notarized, published immediately as pre-release ──
       - name: Build and Release (dev)
@@ -94,4 +93,5 @@ jobs:
             Branch: `dev` | Run: #${{ github.run_number }} | Commit: ${{ github.sha }}
           releaseDraft: false
           prerelease: true
-          args: ${{ matrix.platform == 'macos-latest' && '--target universal-apple-darwin' || '' }}
+          # Temporarily removing universal target to see if native build succeeds
+          args: ${{ matrix.platform == 'macos-latest' && '' || '' }}
