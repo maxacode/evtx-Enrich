@@ -773,17 +773,28 @@
        Footer
        ----------------------------------------------------------------------- -->
   <footer class="app-footer">
-    <span class="footer-text">
-      evtx-to-csv &mdash; Incident Response Tool
-    </span>
-    {#if files.length > 0}
-      <span class="footer-count">
-        {files.length} file{files.length !== 1 ? 's' : ''} loaded
+    <div class="footer-left">
+      <span class="footer-text">
+        evtx-to-csv &mdash; Incident Response Tool
       </span>
-    {/if}
+      {#if files.length > 0}
+        <span class="footer-count">
+          {files.length} file{files.length !== 1 ? 's' : ''} loaded
+        </span>
+      {/if}
+    </div>
+
+    <button class="btn-feedback" on:click={() => (showFeedback = true)}>
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+      </svg>
+      Report Bug / Request Feature
+    </button>
   </footer>
 
 </div>
+
+<FeedbackDialog show={showFeedback} on:close={() => (showFeedback = false)} />
 
 <!-- =========================================================================
      Styles
@@ -1272,6 +1283,13 @@
     height: 1px;
     padding: 0;
     margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
+  }
+</style>
+px;
     overflow: hidden;
     clip: rect(0, 0, 0, 0);
     white-space: nowrap;

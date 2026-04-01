@@ -1,4 +1,5 @@
 name: Release
+
 on:
   push:
     branches:
@@ -24,25 +25,20 @@ jobs:
         with:
           node-version: lts/*
 
-      - name: Install Rust
+      - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install dependencies (macOS)
-        if: matrix.platform == 'macos-latest'
-        run: |
-          # No extra libs needed for standard Tauri on macOS
-          echo "macOS dependencies already satisfied"
-
-      - name: Install dependencies (Windows)
-        if: matrix.platform == 'windows-latest'
-        run: |
-          # No extra libs needed for standard Tauri on Windows
-          echo "Windows dependencies already satisfied"
+      - name: Cache Rust build artifacts
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
 
       - name: Install frontend dependencies
         run: npm install
 
-      - name: Build and Release
+      # ── main branch: signed + notarized, published as draft stable release ──
+      - name: Build and Release (main)
+        if: github.ref == 'refs/heads/main'
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -53,8 +49,36 @@ jobs:
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
-          tagName: v__VERSION__-${{ github.sha }} # Use commit SHA since we are not using git tags directly
-          releaseName: 'evtx-to-csv v__VERSION__ (Commit: ${{ github.sha }})'
-          releaseBody: 'Automated build from push to main/dev.'
+          tagName: v__VERSION__
+          releaseName: 'evtx-to-csv v__VERSION__'
+          releaseBody: |
+            ## evtx-to-csv v__VERSION__
+
+            Download the appropriate installer for your platform below.
+
+            - **macOS**: `.dmg` (signed & notarized)
+            - **Windows**: `.msi` installer
           releaseDraft: true
+          prerelease: false
+
+      # ── dev branch: signed + notarized, published immediately as pre-release ──
+      - name: Build and Release (dev)
+        if: github.ref == 'refs/heads/dev'
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          tagName: v__VERSION__-dev.${{ github.run_number }}
+          releaseName: 'evtx-to-csv v__VERSION__ (Dev build #${{ github.run_number }})'
+          releaseBody: |
+            **Development build** — may be unstable.
+
+            Branch: `dev` | Run: #${{ github.run_number }} | Commit: ${{ github.sha }}
+          releaseDraft: false
           prerelease: true
