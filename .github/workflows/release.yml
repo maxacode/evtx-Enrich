@@ -71,6 +71,10 @@ jobs:
           echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
           ls -l certificate.p12
           
+          echo "Verifying certificate with openssl..."
+          # This will fail if the password is wrong or the file is corrupted
+          openssl pkcs12 -info -in certificate.p12 -passin pass:"$APPLE_CERTIFICATE_PASSWORD" -nokeys || echo "ERROR: openssl verification failed!"
+          
           echo "Importing certificate..."
           # Try import with explicit format and more verbose output if possible
           security import certificate.p12 -k "$KEYCHAIN_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -f pkcs12 -A
