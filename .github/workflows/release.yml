@@ -52,6 +52,15 @@ jobs:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: |
+          echo "Checking secret lengths..."
+          echo "APPLE_CERTIFICATE length: ${#APPLE_CERTIFICATE}"
+          echo "APPLE_CERTIFICATE_PASSWORD length: ${#APPLE_CERTIFICATE_PASSWORD}"
+          
+          if [ "${#APPLE_CERTIFICATE}" -lt 10 ]; then
+            echo "ERROR: APPLE_CERTIFICATE secret is empty or too short!"
+            exit 1
+          fi
+          
           echo "Setting up temporary keychain..."
           KEYCHAIN_PATH=$RUNNER_TEMP/build.keychain-db
           security create-keychain -p "password" "$KEYCHAIN_PATH"
