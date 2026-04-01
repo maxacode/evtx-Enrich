@@ -38,6 +38,15 @@ jobs:
       - name: Install frontend dependencies
         run: npm install
 
+      - name: Debug Identities
+        run: |
+          if [ "${{ matrix.platform }}" == "macos-latest" ]; then
+            # The tauri-action sets up the keychain in the next step, 
+            # so we can't easily debug it here unless we do it manually.
+            # But we can at least check what's available before.
+            security find-identity -v -p codesigning || true
+          fi
+
       # ── main branch: signed + notarized, published as draft stable release ──
       - name: Build and Release (main)
         if: github.ref == 'refs/heads/main'
@@ -46,7 +55,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: "12D363A3863735983DCB2227B7C3C15A32B38505"
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -72,7 +81,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: "12D363A3863735983DCB2227B7C3C15A32B38505"
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
