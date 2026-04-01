@@ -55,16 +55,23 @@ jobs:
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "password" "$KEYCHAIN_PATH"
           
-          echo "Decoding and importing certificate..."
+          echo "Decoding certificate..."
           echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
-          security import certificate.p12 -k "$KEYCHAIN_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -A
+          echo "File size of certificate.p12: $(wc -c < certificate.p12) bytes"
           
-          echo "Listing identities..."
-          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+          echo "Importing certificate..."
+          security import certificate.p12 -k "$KEYCHAIN_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -A 2>&1
+          IMPORT_STATUS=$?
+          echo "security import exit code: $IMPORT_STATUS"
           
-          echo "Checking certificate validity..."
-          # This will show if the certificate is trusted
-          security find-certificate -a -c "Developer ID Application" "$KEYCHAIN_PATH"
+          echo "Listing ALL identities (including invalid)..."
+          security find-identity -p codesigning "$KEYCHAIN_PATH"
+          
+          echo "Listing ALL certificates in keychain..."
+          security find-certificate -a "$KEYCHAIN_PATH"
+          
+          echo "Dumping openssl info (no keys)..."
+          openssl pkcs12 -info -in certificate.p12 -passin pass:"$APPLE_CERTIFICATE_PASSWORD" -nokeys 2>&1 | head -n 20
           
           rm certificate.p12
 
