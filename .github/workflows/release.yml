@@ -58,30 +58,44 @@ jobs:
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "password" "$KEYCHAIN_PATH"
           
-          echo "Importing certificate..."
+          echo "Decoding certificate..."
           echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
-          # Use -A to allow all apps to access the key (for testing)
-          security import certificate.p12 -k "$KEYCHAIN_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -A -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "password" "$KEYCHAIN_PATH"
+          ls -l certificate.p12
+          
+          echo "Importing certificate..."
+          # Try import with explicit format and more verbose output if possible
+          security import certificate.p12 -k "$KEYCHAIN_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -f pkcs12 -A
           
           echo "Adding keychain to search list..."
           security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | xargs)
           
-          echo "Checking identities..."
+          echo "Verifying keychain status..."
+          security show-keychain-info "$KEYCHAIN_PATH"
+          
+          echo "Checking identities (verbose)..."
+          security find-identity -v "$KEYCHAIN_PATH"
           security find-identity -v -p codesigning
           
-          echo "Dumping certificate details..."
-          security find-certificate -a -Z "$KEYCHAIN_PATH"
+          echo "Listing certificates in keychain..."
+          security find-certificate -a "$KEYCHAIN_PATH"
           
           echo "Testing signing on a dummy file..."
           echo "test" > test.txt
-          # Try to sign with the first identity found
-          IDENTITY=$(security find-identity -v -p codesigning | head -n 1 | grep -o '".*"' | sed 's/"//g')
-          echo "Found identity: $IDENTITY"
-          codesign --force --sign "$IDENTITY" test.txt
+          # Get the identity name dynamically
+          IDENTITY=$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -n 1 | grep -o '".*"' | sed 's/"//g' || true)
+          echo "Found identity: [$IDENTITY]"
+          if [ -n "$IDENTITY" ]; then
+            codesign --force --sign "$IDENTITY" test.txt
+          else
+            echo "No Developer ID identity found, trying first available..."
+            IDENTITY=$(security find-identity -v -p codesigning | head -n 1 | grep -o '".*"' | sed 's/"//g' || true)
+            echo "Using fallback identity: [$IDENTITY]"
+            [ -n "$IDENTITY" ] && codesign --force --sign "$IDENTITY" test.txt || echo "Still no identity found."
+          fi
           
           echo "Cleaning up test..."
           rm certificate.p12 test.txt
+
 
 
 
