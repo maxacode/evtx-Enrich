@@ -63,7 +63,7 @@
     "security": {
       "csp": null
     },
-    "macOSPrivateApi": true,
+    "macOSPrivateApi": false,
     "windows": [
       {
         "label": "main",

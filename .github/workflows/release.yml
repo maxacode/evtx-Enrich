@@ -45,6 +45,37 @@ jobs:
             security find-identity -v -p codesigning || true
           fi
 
+      - name: Test Signing (macOS)
+        if: matrix.platform == 'macos-latest'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          echo "Setting up temporary keychain..."
+          KEYCHAIN_PATH=$RUNNER_TEMP/build.keychain-db
+          security create-keychain -p "" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "" "$KEYCHAIN_PATH"
+          
+          echo "Importing certificate..."
+          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
+          security import certificate.p12 -k "$KEYCHAIN_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "" "$KEYCHAIN_PATH"
+          
+          echo "Checking identities in temporary keychain..."
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+          
+          echo "Testing signing on a dummy file..."
+          echo "test" > test.txt
+          # Using the identity from secrets. If it fails here, we see the error.
+          codesign --force --sign "$APPLE_SIGNING_IDENTITY" test.txt
+          
+          echo "Cleaning up test..."
+          rm certificate.p12 test.txt
+
+
       # ── main branch: build, sign, notarize ──
       - name: Build and Release (main)
         if: github.ref == 'refs/heads/main'
@@ -69,8 +100,7 @@ jobs:
             - **Windows**: `.msi` installer
           releaseDraft: true
           prerelease: false
-          # Temporarily removing universal target to see if native build succeeds
-          args: ${{ matrix.platform == 'macos-latest' && '' || '' }}
+          args: ${{ matrix.platform == 'macos-latest' && '--target universal-apple-darwin' || '' }}
 
       # ── dev branch: signed + notarized, published immediately as pre-release ──
       - name: Build and Release (dev)
@@ -93,5 +123,4 @@ jobs:
             Branch: `dev` | Run: #${{ github.run_number }} | Commit: ${{ github.sha }}
           releaseDraft: false
           prerelease: true
-          # Temporarily removing universal target to see if native build succeeds
-          args: ${{ matrix.platform == 'macos-latest' && '' || '' }}
+          args: ${{ matrix.platform == 'macos-latest' && '--target universal-apple-darwin' || '' }}
