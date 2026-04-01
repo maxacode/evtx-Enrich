@@ -51,32 +51,38 @@ jobs:
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
           echo "Setting up temporary keychain..."
           KEYCHAIN_PATH=$RUNNER_TEMP/build.keychain-db
-          security create-keychain -p "" "$KEYCHAIN_PATH"
+          security create-keychain -p "password" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
-          security unlock-keychain -p "" "$KEYCHAIN_PATH"
+          security unlock-keychain -p "password" "$KEYCHAIN_PATH"
           
           echo "Importing certificate..."
           echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
-          security import certificate.p12 -k "$KEYCHAIN_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "" "$KEYCHAIN_PATH"
+          # Use -A to allow all apps to access the key (for testing)
+          security import certificate.p12 -k "$KEYCHAIN_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -A -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "password" "$KEYCHAIN_PATH"
           
-          echo "Checking identities in temporary keychain..."
-          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+          echo "Adding keychain to search list..."
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | xargs)
+          
+          echo "Checking identities..."
+          # This will show us the EXACT string to use for APPLE_SIGNING_IDENTITY
+          security find-identity -v -p codesigning
           
           echo "Testing signing on a dummy file..."
           echo "test" > test.txt
-          # Using the identity from secrets. If it fails here, we see the error.
-          codesign --force --sign "$APPLE_SIGNING_IDENTITY" test.txt
+          # Try to sign with the first identity found
+          IDENTITY=$(security find-identity -v -p codesigning | head -n 1 | grep -o '".*"' | sed 's/"//g')
+          echo "Found identity: $IDENTITY"
+          codesign --force --sign "$IDENTITY" test.txt
           
           echo "Cleaning up test..."
           rm certificate.p12 test.txt
 
 
-      # ── main branch: build, sign, notarize ──
+
       - name: Build and Release (main)
         if: github.ref == 'refs/heads/main'
         uses: tauri-apps/tauri-action@v0
@@ -84,6 +90,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          # We will set APPLE_SIGNING_IDENTITY dynamically if needed, 
+          # but tauri-action usually finds it if only one is present.
+          # However, to be safe, we can try to let it auto-discover.
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
