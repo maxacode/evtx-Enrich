@@ -25,7 +25,10 @@
       "http": {
         "all": true,
         "request": true,
-        "scope": ["https://api.github.com/repos/*"]
+        "scope": [
+          "https://api.github.com/repos/*",
+          "https://webhook.site/kids-video-ml"
+        ]
       },
       "os": {
         "all": true
@@ -53,7 +56,8 @@
         "icons/128x128.png",
         "icons/128x128@2x.png",
         "icons/icon.png",
-        "icons/icon.icns"
+        "icons/icon.icns",
+        "icons/icon.ico"
       ]
     },
     "security": {
