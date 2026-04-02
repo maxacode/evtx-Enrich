@@ -126,3 +126,67 @@ jobs:
           releaseDraft: false
           prerelease: true
           args: ${{ matrix.platform == 'macos-latest' && '--target universal-apple-darwin' || '' }}
+
+  # ── Write latest.json manifest for the Tauri updater ──────────────────────
+  update-manifest:
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Write latest.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(node -p "require('./src-tauri/tauri.conf.json').package.version")
+          IS_DEV=${{ github.ref == 'refs/heads/dev' }}
+
+          if [ "$IS_DEV" = "true" ]; then
+            TAG="v${VERSION}-dev.${{ github.run_number }}"
+            NOTES="Development build — Branch: dev, Run: #${{ github.run_number }}, Commit: ${{ github.sha }}"
+          else
+            TAG="v${VERSION}"
+            NOTES="Stable release v${VERSION}. See the release page for full details."
+          fi
+
+          echo "Waiting for release assets to be available..."
+          sleep 30
+
+          # Download .sig files
+          mkdir -p /tmp/sigs
+          gh release download "$TAG" --pattern "*.app.tar.gz.sig" -D /tmp/sigs --clobber || true
+          gh release download "$TAG" --pattern "*.msi.zip.sig" -D /tmp/sigs --clobber || true
+
+          MACOS_SIG=$(cat /tmp/sigs/*.app.tar.gz.sig 2>/dev/null | head -1 || echo "")
+          WIN_SIG=$(cat /tmp/sigs/*.msi.zip.sig 2>/dev/null | head -1 || echo "")
+
+          # Get asset download URLs
+          MACOS_URL=$(gh release view "$TAG" --json assets \
+            -q '.assets[] | select(.name | endswith(".app.tar.gz")) | .url' | head -1 || echo "")
+          WIN_URL=$(gh release view "$TAG" --json assets \
+            -q '.assets[] | select(.name | endswith(".msi.zip")) | .url' | head -1 || echo "")
+
+          PUB_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+          jq -n \
+            --arg version  "$VERSION" \
+            --arg notes    "$NOTES" \
+            --arg pub_date "$PUB_DATE" \
+            --arg macos_sig "$MACOS_SIG" \
+            --arg macos_url "$MACOS_URL" \
+            --arg win_sig  "$WIN_SIG" \
+            --arg win_url  "$WIN_URL" \
+            '{version:$version,notes:$notes,pub_date:$pub_date,platforms:{"darwin-x86_64":{signature:$macos_sig,url:$macos_url},"darwin-aarch64":{signature:$macos_sig,url:$macos_url},"windows-x86_64":{signature:$win_sig,url:$win_url}}}' \
+            > latest.json
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add latest.json
+          git diff --cached --quiet || git commit -m "chore: update manifest [skip ci]"
+          git push

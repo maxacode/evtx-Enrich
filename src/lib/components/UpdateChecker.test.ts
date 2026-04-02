@@ -15,9 +15,13 @@ Object.defineProperty(window, 'localStorage', { value: localStorageMock, writabl
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
 const mockCheckForUpdates = vi.fn();
+const mockInstallUpdate = vi.fn();
+const mockRelaunch = vi.fn();
 
 vi.mock('../tauri-api', () => ({
   checkForUpdates: (...args: unknown[]) => mockCheckForUpdates(...args),
+  installUpdate:   (...args: unknown[]) => mockInstallUpdate(...args),
+  relaunch:        (...args: unknown[]) => mockRelaunch(...args),
 }));
 
 const mockOpenShell = vi.fn();
@@ -81,13 +85,29 @@ describe('UpdateChecker', () => {
     expect(getByText('Bug fixes and improvements.')).toBeTruthy();
   });
 
-  it('calls openShell with release URL when Download is clicked', async () => {
+  it('calls installUpdate then relaunch when Install is clicked (stable channel)', async () => {
     mockCheckForUpdates.mockResolvedValue({ ...stableRelease, tagName: 'v0.1.3' });
-    mockOpenShell.mockResolvedValue(undefined);
+    mockInstallUpdate.mockResolvedValue(undefined);
+    mockRelaunch.mockResolvedValue(undefined);
     const { findByText, getByText } = render(UpdateChecker, { currentVersion: '0.1.2' });
     await fireEvent.click(await findByText('↑ v0.1.3 available'));
-    await fireEvent.click(getByText('Download v0.1.3'));
-    expect(mockOpenShell).toHaveBeenCalledWith(stableRelease.htmlUrl);
+    await fireEvent.click(getByText('Install v0.1.3'));
+    expect(mockInstallUpdate).toHaveBeenCalled();
+    expect(mockRelaunch).toHaveBeenCalled();
+  });
+
+  it('calls openShell with release URL when Download is clicked (dev channel)', async () => {
+    mockCheckForUpdates
+      .mockResolvedValueOnce({ ...stableRelease, tagName: 'v0.1.2' }) // stable check on mount
+      .mockResolvedValueOnce({ ...devRelease, tagName: 'v0.1.3-dev.5' }); // dev check after switch
+    mockOpenShell.mockResolvedValue(undefined);
+    const { findByText, getByText } = render(UpdateChecker, { currentVersion: '0.1.2' });
+    await findByText('✓ Up to date');
+    await fireEvent.click(getByText('Dev'));
+    const badge = await findByText('↑ v0.1.3-dev.5 available');
+    await fireEvent.click(badge);
+    await fireEvent.click(getByText('Download v0.1.3-dev.5'));
+    expect(mockOpenShell).toHaveBeenCalledWith(devRelease.htmlUrl);
   });
 
   it('switches to dev channel and re-checks when Dev button is clicked', async () => {

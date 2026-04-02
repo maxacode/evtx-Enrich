@@ -16,7 +16,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { open as openShell } from '@tauri-apps/api/shell';
-  import { checkForUpdates } from '../tauri-api';
+  import { checkForUpdates, installUpdate, relaunch } from '../tauri-api';
   import type { ReleaseInfo } from '../tauri-api';
 
   /** Current running version, passed in from App.svelte. */
@@ -41,6 +41,8 @@
   let release: ReleaseInfo | null = null;
   let error: string | null = null;
   let showPanel = false;
+  let installing = false;
+  let installError: string | null = null;
 
   // ---------------------------------------------------------------------------
   // Version comparison
@@ -97,9 +99,23 @@
     }
   }
 
-  async function openDownload() {
-    if (release?.htmlUrl) {
-      await openShell(release.htmlUrl);
+  async function doInstall() {
+    if (!release) return;
+    installing = true;
+    installError = null;
+    try {
+      if (channel === 'stable') {
+        // Tauri's built-in updater: download + verify signature + install silently
+        await installUpdate();
+        await relaunch();
+      } else {
+        // Dev channel: open browser — Tauri updater isn't configured for dev endpoint
+        await openShell(release.htmlUrl);
+      }
+    } catch (err) {
+      installError = err instanceof Error ? err.message : String(err);
+    } finally {
+      installing = false;
     }
   }
 
@@ -190,13 +206,25 @@
       {/if}
 
       <div class="update-panel-footer">
-        <button class="btn-download" on:click={openDownload}>
-          <svg width="12" height="12" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-            <path d="M7 1v8M4 6l3 3 3-3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="M2 10v2a1 1 0 001 1h8a1 1 0 001-1v-2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-          </svg>
-          Download {release.tagName}
-        </button>
+        {#if installing}
+          <span class="update-status checking">
+            <span class="mini-spinner" aria-hidden="true"></span>
+            {channel === 'stable' ? 'Installing…' : 'Opening…'}
+          </span>
+        {:else if installError}
+          <div class="install-error-row">
+            <span class="install-error">{installError}</span>
+            <button class="btn-download btn-retry" on:click={doInstall}>Retry</button>
+          </div>
+        {:else}
+          <button class="btn-download" on:click={doInstall}>
+            <svg width="12" height="12" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+              <path d="M7 1v8M4 6l3 3 3-3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M2 10v2a1 1 0 001 1h8a1 1 0 001-1v-2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+            </svg>
+            {channel === 'stable' ? `Install ${release.tagName}` : `Download ${release.tagName}`}
+          </button>
+        {/if}
         <span class="update-channel-label">
           {release.isPrerelease ? 'Dev build' : 'Stable release'}
         </span>
@@ -413,5 +441,25 @@
   .update-channel-label {
     font-size: 11px;
     color: var(--color-text-muted, #8b92a5);
+  }
+
+  .install-error-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+  }
+
+  .install-error {
+    font-size: 11px;
+    color: var(--color-error, #f87171);
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .btn-retry {
+    flex-shrink: 0;
   }
 </style>

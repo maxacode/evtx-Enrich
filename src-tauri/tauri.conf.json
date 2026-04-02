@@ -27,6 +27,7 @@
         "request": true,
         "scope": [
           "https://api.github.com/repos/*",
+          "https://raw.githubusercontent.com/maxacode/evtx-to-csv/*",
           "https://webhook.site/kids-video-ml"
         ]
       },
@@ -62,6 +63,14 @@
         "icons/icon.icns",
         "icons/icon.ico"
       ]
+    },
+    "updater": {
+      "active": true,
+      "endpoints": [
+        "https://raw.githubusercontent.com/maxacode/evtx-to-csv/main/latest.json"
+      ],
+      "dialog": false,
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDNGODUyQjU1N0ZBMDJDRDIKUldUU0xLQi9WU3VGUHdQNng4MHE1WHE0RStUSFJnM0FDaFd1RnlBWkpNd1FMQytYbHZlNU5GVTQK"
     },
     "security": {
       "csp": null

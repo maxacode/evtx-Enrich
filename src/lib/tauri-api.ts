@@ -29,7 +29,11 @@ import { invoke } from '@tauri-apps/api/tauri';
 import { open, save } from '@tauri-apps/api/dialog';
 import { open as openShell } from '@tauri-apps/api/shell';
 import { getClient, ResponseType } from '@tauri-apps/api/http';
+import { checkUpdate, installUpdate } from '@tauri-apps/api/updater';
+import { relaunch } from '@tauri-apps/api/process';
 import type { FilterConfig, EventRecord } from './types';
+
+export { installUpdate, relaunch };
 
 // ---------------------------------------------------------------------------
 // Update checker
@@ -51,36 +55,51 @@ export interface ReleaseInfo {
 }
 
 /**
- * Fetch the latest release from GitHub for the chosen channel.
+ * Fetch the latest release for the chosen channel.
  *
- * @param channel - "stable" returns the latest non-prerelease; "dev" returns the latest prerelease.
- * @returns The latest ReleaseInfo for that channel, or null if none found.
+ * Stable channel: delegates to Tauri's built-in updater (checks the configured
+ * endpoint in tauri.conf.json). Returns non-null only when a newer version exists.
+ *
+ * Dev channel: fetches the dev branch manifest from raw.githubusercontent.com
+ * directly (Tauri's updater endpoint only points at main/stable). Returns non-null
+ * only when a newer version exists.
+ *
+ * @param channel - "stable" or "dev"
+ * @returns ReleaseInfo if an update is available, null otherwise.
  */
 export async function checkForUpdates(channel: 'stable' | 'dev'): Promise<ReleaseInfo | null> {
+  if (channel === 'stable') {
+    const { shouldUpdate, manifest } = await checkUpdate();
+    if (!shouldUpdate || !manifest) return null;
+    return {
+      tagName:      `v${manifest.version}`,
+      name:         `evtx-to-csv v${manifest.version}`,
+      body:         manifest.body ?? '',
+      publishedAt:  manifest.date ?? '',
+      htmlUrl:      `https://github.com/maxacode/evtx-to-csv/releases/tag/v${manifest.version}`,
+      isPrerelease: false,
+    };
+  }
+
+  // Dev channel: fetch manifest manually from the dev branch
   const client = await getClient();
-  const response = await client.get<unknown[]>(
-    'https://api.github.com/repos/maxacode/evtx-to-csv/releases',
+  const response = await client.get<Record<string, unknown>>(
+    'https://raw.githubusercontent.com/maxacode/evtx-to-csv/dev/latest.json',
     {
       responseType: ResponseType.Json,
       headers: { 'User-Agent': 'evtx-to-csv-app' },
     }
   );
-
-  const releases = response.data as Array<Record<string, unknown>>;
-  const filtered = releases.filter((r) =>
-    channel === 'dev' ? r['prerelease'] === true : r['prerelease'] === false
-  );
-
-  if (filtered.length === 0) return null;
-
-  const latest = filtered[0];
+  const data = response.data as Record<string, unknown>;
+  const version = String(data['version'] ?? '');
+  if (!version || version === '0.0.0') return null;
   return {
-    tagName:      String(latest['tag_name'] ?? ''),
-    name:         String(latest['name'] ?? ''),
-    body:         String(latest['body'] ?? ''),
-    publishedAt:  String(latest['published_at'] ?? ''),
-    htmlUrl:      String(latest['html_url'] ?? ''),
-    isPrerelease: latest['prerelease'] === true,
+    tagName:      `v${version}`,
+    name:         `evtx-to-csv v${version}`,
+    body:         String(data['notes'] ?? ''),
+    publishedAt:  String(data['pub_date'] ?? ''),
+    htmlUrl:      `https://github.com/maxacode/evtx-to-csv/releases/tag/v${version}`,
+    isPrerelease: true,
   };
 }
 
