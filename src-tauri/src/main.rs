@@ -98,7 +98,7 @@ fn load_app_state(
 /// bundle into the writable app local data directory.
 fn init_signatures(app_handle: &tauri::AppHandle) -> (Vec<PatternSpec>, PathBuf) {
     // 1. Define paths
-    let doc_dir = dirs_next::document_dir().map(|d| d.join("evtx-to-csv"));
+    let doc_dir = dirs_next::document_dir().map(|d| d.join("evtx-Enrich"));
     let doc_path = doc_dir.as_ref().map(|d| d.join("signatures.json"));
     
     // In `tauri dev`, CWD is usually `src-tauri`. Root is `..` (if we kept the root version)

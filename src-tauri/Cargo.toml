@@ -17,13 +17,13 @@
 # =============================================================================
 
 [package]
-name = "evtx-to-csv"
+name = "evtx-enrich"
 version = "0.1.2"
 description = "EventViewer .evtx to CSV converter with IR enrichment"
 authors = []
 license = ""
 repository = ""
-default-run = "evtx-to-csv"
+default-run = "evtx-enrich"
 edition = "2021"
 rust-version = "1.60"
 

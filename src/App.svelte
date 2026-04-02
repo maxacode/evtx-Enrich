@@ -512,7 +512,7 @@
           <path d="M7.5 11l2.5 2.5 4.5-4.5" stroke="var(--color-accent)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
       </span>
-      <h1 class="app-title">evtx-to-csv</h1>
+      <h1 class="app-title">evtx-Enrich</h1>
       <span class="header-sep" aria-hidden="true"></span>
       <p class="app-subtitle">Incident Response Tool</p>
       <span class="version-pill">v{appVersion}</span>
@@ -790,7 +790,7 @@
   <footer class="app-footer">
     <div class="footer-left">
       <span class="footer-text">
-        evtx-to-csv v{appVersion} &mdash; Incident Response Tool
+        evtx-Enrich v{appVersion} &mdash; Incident Response Tool
       </span>
       {#if files.length > 0}
         <span class="footer-count">

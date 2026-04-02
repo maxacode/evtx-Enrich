@@ -24,7 +24,7 @@
 
   type Channel = 'stable' | 'dev';
 
-  const CHANNEL_KEY = 'evtx-update-channel';
+  const CHANNEL_KEY = 'evtxenrich-update-channel';
 
   function getStoredChannel(): Channel {
     try { return (localStorage?.getItem(CHANNEL_KEY) as Channel) ?? 'stable'; }

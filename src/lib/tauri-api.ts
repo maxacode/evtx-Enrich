@@ -73,10 +73,10 @@ export async function checkForUpdates(channel: 'stable' | 'dev'): Promise<Releas
     if (!shouldUpdate || !manifest) return null;
     return {
       tagName:      `v${manifest.version}`,
-      name:         `evtx-to-csv v${manifest.version}`,
+      name:         `evtx-Enrich v${manifest.version}`,
       body:         manifest.body ?? '',
       publishedAt:  manifest.date ?? '',
-      htmlUrl:      `https://github.com/maxacode/evtx-to-csv/releases/tag/v${manifest.version}`,
+      htmlUrl:      `https://github.com/maxacode/evtx-Enrich/releases/tag/v${manifest.version}`,
       isPrerelease: false,
     };
   }
@@ -84,10 +84,10 @@ export async function checkForUpdates(channel: 'stable' | 'dev'): Promise<Releas
   // Dev channel: fetch manifest manually from the dev branch
   const client = await getClient();
   const response = await client.get<Record<string, unknown>>(
-    'https://raw.githubusercontent.com/maxacode/evtx-to-csv/dev/latest.json',
+    'https://raw.githubusercontent.com/maxacode/evtx-Enrich/dev/latest.json',
     {
       responseType: ResponseType.Json,
-      headers: { 'User-Agent': 'evtx-to-csv-app' },
+      headers: { 'User-Agent': 'evtx-enrich-app' },
     }
   );
   const data = response.data as Record<string, unknown>;
@@ -95,10 +95,10 @@ export async function checkForUpdates(channel: 'stable' | 'dev'): Promise<Releas
   if (!version || version === '0.0.0') return null;
   return {
     tagName:      `v${version}`,
-    name:         `evtx-to-csv v${version}`,
+    name:         `evtx-Enrich v${version}`,
     body:         String(data['notes'] ?? ''),
     publishedAt:  String(data['pub_date'] ?? ''),
-    htmlUrl:      `https://github.com/maxacode/evtx-to-csv/releases/tag/v${version}`,
+    htmlUrl:      `https://github.com/maxacode/evtx-Enrich/releases/tag/v${version}`,
     isPrerelease: true,
   };
 }

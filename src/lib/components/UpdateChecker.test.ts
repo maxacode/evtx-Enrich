@@ -31,19 +31,19 @@ vi.mock('@tauri-apps/api/shell', () => ({
 
 const stableRelease = {
   tagName: 'v0.1.2',
-  name: 'evtx-to-csv v0.1.2',
+  name: 'evtx-Enrich v0.1.2',
   body: 'Bug fixes and improvements.',
   publishedAt: '2026-04-02T12:00:00Z',
-  htmlUrl: 'https://github.com/maxacode/evtx-to-csv/releases/tag/v0.1.2',
+  htmlUrl: 'https://github.com/maxacode/evtx-Enrich/releases/tag/v0.1.2',
   isPrerelease: false,
 };
 
 const devRelease = {
   tagName: 'v0.1.2-dev.5',
-  name: 'evtx-to-csv v0.1.2 (Dev build #5)',
+  name: 'evtx-Enrich v0.1.2 (Dev build #5)',
   body: 'Development build — may be unstable.',
   publishedAt: '2026-04-02T13:00:00Z',
-  htmlUrl: 'https://github.com/maxacode/evtx-to-csv/releases/tag/v0.1.2-dev.5',
+  htmlUrl: 'https://github.com/maxacode/evtx-Enrich/releases/tag/v0.1.2-dev.5',
   isPrerelease: true,
 };
 
@@ -81,7 +81,7 @@ describe('UpdateChecker', () => {
     const { findByText, getByText } = render(UpdateChecker, { currentVersion: '0.1.2' });
     const badge = await findByText('↑ v0.1.3 available');
     await fireEvent.click(badge);
-    expect(getByText('evtx-to-csv v0.1.2')).toBeTruthy();
+    expect(getByText('evtx-Enrich v0.1.2')).toBeTruthy();
     expect(getByText('Bug fixes and improvements.')).toBeTruthy();
   });
 
@@ -124,7 +124,7 @@ describe('UpdateChecker', () => {
     mockCheckForUpdates.mockResolvedValue(null);
     const { getByText } = render(UpdateChecker, { currentVersion: '0.1.2' });
     await fireEvent.click(getByText('Dev'));
-    expect(localStorage.getItem('evtx-update-channel')).toBe('dev');
+    expect(localStorage.getItem('evtxenrich-update-channel')).toBe('dev');
   });
 
   it('shows error status when check fails', async () => {

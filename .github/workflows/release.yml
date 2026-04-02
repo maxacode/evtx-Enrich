@@ -90,9 +90,9 @@ jobs:
           TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
         with:
           tagName: v__VERSION__
-          releaseName: 'evtx-to-csv v__VERSION__'
+          releaseName: 'evtx-Enrich v__VERSION__'
           releaseBody: |
-            ## evtx-to-csv v__VERSION__
+            ## evtx-Enrich v__VERSION__
 
             Download the appropriate installer for your platform below.
 
@@ -118,7 +118,7 @@ jobs:
           TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
         with:
           tagName: v__VERSION__-dev.${{ github.run_number }}
-          releaseName: 'evtx-to-csv v__VERSION__ (Dev build #${{ github.run_number }})'
+          releaseName: 'evtx-Enrich v__VERSION__ (Dev build #${{ github.run_number }})'
           releaseBody: |
             **Development build** — may be unstable.
 
