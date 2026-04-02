@@ -48,6 +48,9 @@
       "active": true,
       "targets": "all",
       "identifier": "com.evtx.tocsv",
+      "macOS": {
+        "entitlements": "./entitlements.plist"
+      },
       "resources": [
         "signatures.json"
       ],
