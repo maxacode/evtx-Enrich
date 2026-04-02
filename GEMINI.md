@@ -1,9 +1,10 @@
 # Project Guidelines: evtx-to-csv
 
-1. bump the version of teh GUI program everytime you make a change
+1. bump the version of the GUI program everytime you make a change
 2. Add the Branch/Worktree name to the Program Title of the Window so i can tell the difference. (remove it when pushing to github)
 3. Run tests for the items that were changed. 
 4. run a dev build and check for any errors if there are fix them. 
+5. Always add a version number into the GUI  
    
 ## Testing Standards
 This project maintains high reliability by testing both the Svelte frontend and the Rust backend.

@@ -18,6 +18,18 @@ vi.mock('./lib/tauri-api', () => ({
   openFile: vi.fn(),
   openFolder: vi.fn(),
   getEvtxSummary: vi.fn(),
+  getSystemInfo: vi.fn(() => Promise.resolve({ username: 'test', hostname: 'host' })),
+}));
+
+// Mock @tauri-apps/api/app
+vi.mock('@tauri-apps/api/app', () => ({
+  getVersion: vi.fn(() => Promise.resolve('0.1.1')),
+}));
+
+// Mock @tauri-apps/api/path
+vi.mock('@tauri-apps/api/path', () => ({
+  resourceDir: vi.fn(() => Promise.resolve('/res/')),
+  appLocalDataDir: vi.fn(() => Promise.resolve('/data/')),
 }));
 
 // Mock @tauri-apps/api/fs

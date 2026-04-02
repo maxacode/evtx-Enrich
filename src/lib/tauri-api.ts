@@ -409,3 +409,8 @@ export async function getSignaturesInfo(): Promise<{ count: number; path: string
     return { count: 0, path: '' };
   }
 }
+
+/** Get system username and hostname from the backend. */
+export async function getSystemInfo(): Promise<{ username: string; hostname: string }> {
+  return await invoke('get_system_info');
+}

@@ -41,6 +41,7 @@
 
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
+  import { getVersion } from '@tauri-apps/api/app';
   import { writeTextFile } from '@tauri-apps/api/fs';
   import FileCard from './lib/components/FileCard.svelte';
   import FilterPanel from './lib/components/FilterPanel.svelte';
@@ -86,6 +87,9 @@
 
   /** Info about the currently-loaded signatures.json (rule count + file path) */
   let signaturesInfo: { count: number; path: string } = { count: 0, path: '' };
+
+  /** Runtime app version shown in the header/footer. */
+  let appVersion = '0.1.1';
 
   /** True while a signatures reload is in progress */
   let refreshingSignatures = false;
@@ -156,6 +160,12 @@
   let cleanupDrop: (() => void) | null = null;
 
   onMount(async () => {
+    try {
+      appVersion = await getVersion();
+    } catch {
+      // Keep the shipped fallback version if the runtime call is unavailable.
+    }
+
     // Get current signature info from the Rust AppState (populated during app startup)
     signaturesInfo = await getSignaturesInfo();
 
@@ -506,7 +516,10 @@
           </span>
           evtx-to-csv
         </h1>
-        <p class="app-subtitle">Incident Response Tool</p>
+        <div class="app-meta-row">
+          <p class="app-subtitle">Incident Response Tool</p>
+          <span class="version-pill">v{appVersion}</span>
+        </div>
       </div>
 
       <!-- Header right: exported count badge if any files are done -->
@@ -779,7 +792,7 @@
   <footer class="app-footer">
     <div class="footer-left">
       <span class="footer-text">
-        evtx-to-csv &mdash; Incident Response Tool
+        evtx-to-csv v{appVersion} &mdash; Incident Response Tool
       </span>
       {#if files.length > 0}
         <span class="footer-count">
@@ -892,6 +905,25 @@
     letter-spacing: 0.05em;
     text-transform: uppercase;
     padding-left: 32px; /* Align under title text, past the icon */
+    margin: 0;
+  }
+
+  .app-meta-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .version-pill {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--color-accent);
+    background: rgba(92, 124, 250, 0.08);
+    border: 1px solid rgba(92, 124, 250, 0.22);
+    border-radius: 999px;
+    padding: 3px 8px;
   }
 
   /* Badge showing count of files already exported in this session */
@@ -1267,6 +1299,7 @@
   .footer-count {
     font-size: 11px;
     color: var(--color-text-muted);
+    margin-left: 10px;
   }
 
   /* -------------------------------------------------------------------------
@@ -1291,6 +1324,30 @@
     color: var(--color-accent);
     border-color: var(--color-accent);
     background: rgba(92, 124, 250, 0.05);
+  }
+
+  @media (max-width: 720px) {
+    .header-content,
+    .app-footer {
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .app-meta-row {
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .footer-left {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .footer-count {
+      margin-left: 0;
+    }
   }
 
   /* -------------------------------------------------------------------------

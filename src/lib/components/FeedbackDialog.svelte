@@ -1,48 +1,100 @@
 <script lang="ts">
   import { createEventDispatcher, onMount } from 'svelte';
-  import { getClient, Body } from '@tauri-apps/api/http';
+  import { getClient, Body, ResponseType } from '@tauri-apps/api/http';
   import { type, version as osVersion, arch } from '@tauri-apps/api/os';
   import { getVersion } from '@tauri-apps/api/app';
+  import { readTextFile } from '@tauri-apps/api/fs';
+  import { resourceDir, appLocalDataDir } from '@tauri-apps/api/path';
+  import { getSystemInfo } from '../tauri-api';
 
   export let show = false;
 
   const dispatch = createEventDispatcher();
-  const STORAGE_KEY_TOKEN = 'gemini_feedback_github_token';
-  const STORAGE_KEY_REPO = 'gemini_feedback_repo';
+  
+  // Default configuration
+  let config = {
+    webhook_url: 'https://webhook.site/kids-video-ml',
+    collect_fields: {
+      username: true,
+      hostname: true,
+      os_type: true,
+      os_version: true,
+      arch: true,
+      app_version: true,
+      timestamp: true,
+      timezone: true,
+      locale: true
+    }
+  };
 
   let requestType: 'bug' | 'feature' = 'bug';
   let description = '';
-  let githubToken = '';
-  let repo = 'maks-derevencha/evtx-to-csv';
   let status: 'idle' | 'sending' | 'success' | 'error' = 'idle';
   let errorMessage = '';
 
-  // System info
-  let systemInfo = {
-    os: '',
-    osVer: '',
-    arch: '',
-    appVer: ''
-  };
+  // System info storage
+  let capturedData: any = {};
 
   onMount(async () => {
-    githubToken = localStorage.getItem(STORAGE_KEY_TOKEN) || '';
-    const savedRepo = localStorage.getItem(STORAGE_KEY_REPO);
-    if (savedRepo) repo = savedRepo;
-
-    try {
-      systemInfo.os = await type();
-      systemInfo.osVer = await osVersion();
-      systemInfo.arch = await arch();
-      systemInfo.appVer = await getVersion();
-    } catch (e) {
-      console.error('Failed to get system info', e);
-    }
+    await loadConfig();
+    await captureSystemData();
   });
 
+  async function loadConfig() {
+    const configFileName = 'feedback-config.json';
+    const paths = [];
+    
+    try {
+      paths.push(`./${configFileName}`);
+      paths.push(await resourceDir() + configFileName);
+      paths.push(await appLocalDataDir() + configFileName);
+    } catch (e) {
+      console.warn('Failed to resolve some config paths', e);
+    }
+
+    for (const path of paths) {
+      try {
+        const content = await readTextFile(path);
+        const parsed = JSON.parse(content);
+        if (parsed.webhook_url) {
+          config = { ...config, ...parsed };
+          console.log(`Loaded config from ${path}`);
+          break;
+        }
+      } catch (e) {
+        // Skip and try next path
+      }
+    }
+  }
+
+  async function captureSystemData() {
+    const fields = config.collect_fields;
+    const data: any = {};
+
+    try {
+      if (fields.os_type) data.os_type = await type();
+      if (fields.os_version) data.os_version = await osVersion();
+      if (fields.arch) data.arch = await arch();
+      if (fields.app_version) data.app_version = await getVersion();
+      if (fields.timestamp) data.timestamp = new Date().toISOString();
+      if (fields.timezone) data.timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      if (fields.locale) data.locale = navigator.language;
+
+      if (fields.username || fields.hostname) {
+        const info = await getSystemInfo();
+        if (fields.username) data.username = info.username;
+        if (fields.hostname) data.hostname = info.hostname;
+      }
+    } catch (e) {
+      console.error('Failed to capture some system data', e);
+    }
+
+    capturedData = data;
+  }
+
   async function handleSubmit() {
-    if (!description || !githubToken || !repo) {
-      errorMessage = 'Please fill in all fields (Description, Repo, and Token).';
+    if (!description) {
+      errorMessage = 'Please provide a description.';
       status = 'error';
       return;
     }
@@ -53,27 +105,23 @@
     try {
       const client = await getClient();
       
-      localStorage.setItem(STORAGE_KEY_TOKEN, githubToken);
-      localStorage.setItem(STORAGE_KEY_REPO, repo);
+      const authHeader = requestType === 'bug' 
+        ? 'Evtx-CSV-Bug' 
+        : 'EVTX-CSV-Feature-Request';
 
-      const url = `https://api.github.com/repos/${repo}/dispatches`;
-      
       const payload = {
         type: requestType,
         description,
-        timestamp: new Date().toISOString(),
-        environment: systemInfo
+        ...capturedData
       };
 
-      const response = await client.post(url, Body.json({
-        event_type: 'gemini-fix',
-        client_payload: payload
-      }), {
+      const response = await client.post(config.webhook_url, Body.json(payload), {
         headers: {
-          'Authorization': `Bearer ${githubToken}`,
-          'Accept': 'application/vnd.github.v3+json',
+          'Authorization': authHeader,
+          'Content-Type': 'application/json',
           'User-Agent': 'Tauri-App'
-        }
+        },
+        responseType: ResponseType.Text
       });
 
       if (response.status >= 200 && response.status < 300) {
@@ -86,7 +134,7 @@
         }, 3000);
       } else {
         status = 'error';
-        errorMessage = `GitHub API error (${response.status}): ${JSON.stringify(response.data)}`;
+        errorMessage = `Webhook error (${response.status}): ${response.data}`;
       }
     } catch (err) {
       status = 'error';
@@ -105,7 +153,7 @@
   <div class="modal-overlay" on:click|self={close}>
     <div class="modal-content">
       <div class="modal-header">
-        <h2>Submit Request to Gemini Agent</h2>
+        <h2>Submit Feedback to Author</h2>
         <button class="close-btn" on:click={close}>&times;</button>
       </div>
 
@@ -116,7 +164,7 @@
               <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
               <polyline points="22 4 12 14.01 9 11.01" />
             </svg>
-            <p>Sent! Your Gemini agent is now working on it.</p>
+            <p>Sent! The author is now working on it.</p>
           </div>
         {:else}
           <div class="form-group">
@@ -132,28 +180,21 @@
           </div>
 
           <div class="form-group">
-            <label for="repo">GitHub Repository (owner/repo)</label>
-            <input id="repo" type="text" bind:value={repo} placeholder="e.g., user/repo" />
-          </div>
-
-          <div class="form-group">
-            <label for="desc">What should Gemini fix or add?</label>
+            <label for="desc">What should the author fix or add?</label>
             <textarea
               id="desc"
               bind:value={description}
               placeholder="e.g., Add a button to clear all filters..."
-              rows="4"
+              rows="6"
             ></textarea>
           </div>
 
-          <div class="form-group">
-            <label for="token">GitHub PAT (requires 'repo' scope)</label>
-            <input id="token" type="password" bind:value={githubToken} placeholder="ghp_..." />
-            <small>This token triggers the 'repository_dispatch' for your Gemini agent.</small>
-          </div>
-
           <div class="env-info">
-            <p><strong>Environment captured:</strong> {systemInfo.os} {systemInfo.osVer} ({systemInfo.arch}), App v{systemInfo.appVer}</p>
+            <p><strong>Captured info:</strong> 
+              {capturedData.os_type || ''} {capturedData.os_version || ''} 
+              {capturedData.username ? `| ${capturedData.username}` : ''}
+              {capturedData.hostname ? `@${capturedData.hostname}` : ''}
+            </p>
           </div>
 
           {#if status === 'error'}
@@ -176,7 +217,7 @@
           {#if status === 'sending'}
             Sending...
           {:else}
-            Trigger Gemini Agent
+            Send to Author
           {/if}
         </button>
       </div>
@@ -250,8 +291,6 @@
     color: #94a3b8;
   }
 
-  input[type="text"],
-  input[type="password"],
   textarea {
     background: #0f172a;
     border: 1px solid #3d4260;
@@ -260,15 +299,7 @@
     color: #fff;
     font-family: inherit;
     font-size: 14px;
-  }
-
-  textarea {
     resize: vertical;
-  }
-
-  small {
-    font-size: 11px;
-    color: #64748b;
   }
 
   .type-selector {

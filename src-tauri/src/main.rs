@@ -112,26 +112,21 @@ fn init_signatures(app_handle: &tauri::AppHandle) -> (Vec<PatternSpec>, PathBuf)
     // 2. Seeding Logic: If Documents version doesn't exist, try to create it
     if let (Some(target), Some(parent)) = (&doc_path, &doc_dir) {
         if !target.exists() {
-            // Try seeding from bundled resource
-            let mut seeded = false;
-            
             // Try resolving as "signatures.json" (matches tauri.conf.json resources)
             if let Some(res_path) = app_handle.path_resolver().resolve_resource("signatures.json") {
                 if let Ok(content) = std::fs::read_to_string(&res_path) {
                     let _ = std::fs::create_dir_all(parent);
                     if std::fs::write(target, content).is_ok() {
-                        seeded = true;
                         eprintln!("[main] Seeded signatures.json from resource to {:?}", target);
                     }
                 }
             }
 
             // Fallback: seed from working directory (for dev)
-            if !seeded && cwd_path.exists() {
+            if cwd_path.exists() {
                 if let Ok(content) = std::fs::read_to_string(&cwd_path) {
                     let _ = std::fs::create_dir_all(parent);
                     if std::fs::write(target, content).is_ok() {
-                        seeded = true;
                         eprintln!("[main] Seeded signatures.json from CWD to {:?}", target);
                     }
                 }
@@ -487,6 +482,17 @@ async fn reveal_in_folder(path: String) -> Result<(), String> {
     }
 }
 
+/// Get system username and hostname.
+#[tauri::command]
+fn get_system_info() -> Result<serde_json::Value, String> {
+    let username = whoami::username();
+    let hostname = whoami::hostname();
+    Ok(serde_json::json!({
+        "username": username,
+        "hostname": hostname
+    }))
+}
+
 // ---------------------------------------------------------------------------
 // Application entry point
 // ---------------------------------------------------------------------------
@@ -522,7 +528,28 @@ fn main() {
             select_save_csv,
             select_save_md,
             reveal_in_folder,
+            get_system_info,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_system_info() {
+        let result = get_system_info().expect("get_system_info failed");
+        let obj = result.as_object().expect("Result is not an object");
+        
+        assert!(obj.contains_key("username"), "Missing username");
+        assert!(obj.contains_key("hostname"), "Missing hostname");
+        
+        let username = obj.get("username").unwrap().as_str().expect("Username is not a string");
+        let hostname = obj.get("hostname").unwrap().as_str().expect("Hostname is not a string");
+        
+        assert!(!username.is_empty(), "Username is empty");
+        assert!(!hostname.is_empty(), "Hostname is empty");
+    }
 }
