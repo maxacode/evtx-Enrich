@@ -8,7 +8,7 @@
   },
   "package": {
     "productName": "evtx-to-csv",
-    "version": "0.1.1"
+    "version": "0.1.2"
   },
   "tauri": {
     "allowlist": {
@@ -70,7 +70,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "evtx-to-csv (gemini-feedback)",
+        "title": "evtx-to-csv",
         "width": 1280,
         "height": 860,
         "resizable": true,

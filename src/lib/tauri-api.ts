@@ -28,7 +28,61 @@
 import { invoke } from '@tauri-apps/api/tauri';
 import { open, save } from '@tauri-apps/api/dialog';
 import { open as openShell } from '@tauri-apps/api/shell';
+import { getClient, ResponseType } from '@tauri-apps/api/http';
 import type { FilterConfig, EventRecord } from './types';
+
+// ---------------------------------------------------------------------------
+// Update checker
+// ---------------------------------------------------------------------------
+
+export interface ReleaseInfo {
+  /** Tag name, e.g. "v0.1.2" or "v0.1.2-dev.5" */
+  tagName: string;
+  /** Human-readable release title */
+  name: string;
+  /** Markdown release notes body */
+  body: string;
+  /** ISO 8601 publish timestamp */
+  publishedAt: string;
+  /** URL to the GitHub release page for download */
+  htmlUrl: string;
+  /** True if this is a pre-release (dev build) */
+  isPrerelease: boolean;
+}
+
+/**
+ * Fetch the latest release from GitHub for the chosen channel.
+ *
+ * @param channel - "stable" returns the latest non-prerelease; "dev" returns the latest prerelease.
+ * @returns The latest ReleaseInfo for that channel, or null if none found.
+ */
+export async function checkForUpdates(channel: 'stable' | 'dev'): Promise<ReleaseInfo | null> {
+  const client = await getClient();
+  const response = await client.get<unknown[]>(
+    'https://api.github.com/repos/maxacode/evtx-to-csv/releases',
+    {
+      responseType: ResponseType.Json,
+      headers: { 'User-Agent': 'evtx-to-csv-app' },
+    }
+  );
+
+  const releases = response.data as Array<Record<string, unknown>>;
+  const filtered = releases.filter((r) =>
+    channel === 'dev' ? r['prerelease'] === true : r['prerelease'] === false
+  );
+
+  if (filtered.length === 0) return null;
+
+  const latest = filtered[0];
+  return {
+    tagName:      String(latest['tag_name'] ?? ''),
+    name:         String(latest['name'] ?? ''),
+    body:         String(latest['body'] ?? ''),
+    publishedAt:  String(latest['published_at'] ?? ''),
+    htmlUrl:      String(latest['html_url'] ?? ''),
+    isPrerelease: latest['prerelease'] === true,
+  };
+}
 
 function assertTauriAvailable(feature: string) {
   // In a normal browser tab (e.g. opening Vite's dev URL directly), Tauri APIs
