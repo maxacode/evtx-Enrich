@@ -31,6 +31,51 @@ use chrono::{DateTime, Duration, Utc};
 
 use crate::types::{EventRecord, FilterConfig};
 
+fn contains_case_insensitive(haystack: &str, needle_lower: &str) -> bool {
+    haystack.to_lowercase().contains(needle_lower)
+}
+
+fn record_matches_keyword(record: &EventRecord, keyword_lower: &str) -> bool {
+    if keyword_lower.is_empty() {
+        return true;
+    }
+
+    // System + known fields
+    if contains_case_insensitive(&record.timestamp, keyword_lower) { return true; }
+    if contains_case_insensitive(&record.event_id.to_string(), keyword_lower) { return true; }
+    if contains_case_insensitive(&record.level, keyword_lower) { return true; }
+    if contains_case_insensitive(&record.channel, keyword_lower) { return true; }
+    if contains_case_insensitive(&record.computer, keyword_lower) { return true; }
+
+    let check_opt = |opt: &Option<String>| -> bool {
+        opt.as_deref()
+            .map(|s| contains_case_insensitive(s, keyword_lower))
+            .unwrap_or(false)
+    };
+
+    if check_opt(&record.username) { return true; }
+    if check_opt(&record.domain) { return true; }
+    if check_opt(&record.process_id) { return true; }
+    if check_opt(&record.process_name) { return true; }
+    if check_opt(&record.ip_address) { return true; }
+    if check_opt(&record.port) { return true; }
+    if check_opt(&record.logon_type) { return true; }
+    if check_opt(&record.command_line) { return true; }
+    if check_opt(&record.parent_process) { return true; }
+    if check_opt(&record.target_username) { return true; }
+    if check_opt(&record.target_domain) { return true; }
+    if check_opt(&record.workstation) { return true; }
+    if check_opt(&record.auth_package) { return true; }
+
+    // Extra fields (keys and values)
+    for (k, v) in &record.extra_fields {
+        if contains_case_insensitive(k, keyword_lower) { return true; }
+        if contains_case_insensitive(v, keyword_lower) { return true; }
+    }
+
+    false
+}
+
 /// Apply all active filters from `filters` to `records`, returning only those
 /// records that match every filter that is set. Consumes `records` and returns
 /// a new filtered Vec (avoiding in-place mutation, which would complicate
@@ -86,7 +131,7 @@ pub fn apply_filters(records: Vec<EventRecord>, filters: &FilterConfig) -> Vec<E
     // `.into_iter().filter().collect()` is idiomatic Rust for this pattern.
     // We use a closure that returns `bool`; all conditions must be true.
     // ------------------------------------------------------------------
-    records
+    let mut filtered: Vec<EventRecord> = records
         .into_iter()
         .filter(|record| {
             // ---- Time lower-bound check --------------------------------
@@ -196,5 +241,248 @@ pub fn apply_filters(records: Vec<EventRecord>, filters: &FilterConfig) -> Vec<E
             // All active filters passed — include this record in the output
             true
         })
-        .collect()
+        .collect();
+
+    // ------------------------------------------------------------------
+    // Keyword search with optional context window
+    // ------------------------------------------------------------------
+    let keyword = filters
+        .keyword
+        .as_deref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty());
+
+    if let Some(keyword) = keyword {
+        let keyword_lower = keyword.to_lowercase();
+        let ctx = filters.keyword_context.unwrap_or(0).min(5) as usize;
+
+        let mut include: Vec<bool> = vec![false; filtered.len()];
+
+        for (i, record) in filtered.iter().enumerate() {
+            if record_matches_keyword(record, &keyword_lower) {
+                let start = i.saturating_sub(ctx);
+                let end = (i + ctx).min(filtered.len().saturating_sub(1));
+                for j in start..=end {
+                    include[j] = true;
+                }
+            }
+        }
+
+        filtered = filtered
+            .into_iter()
+            .enumerate()
+            .filter(|(i, _)| include[*i])
+            .map(|(_, r)| r)
+            .collect();
+    }
+
+    filtered
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    fn create_mock_record(id: u32, timestamp: &str) -> EventRecord {
+        EventRecord {
+            timestamp: timestamp.to_string(),
+            event_id: id,
+            level: "Information".to_string(),
+            channel: "Security".to_string(),
+            computer: "DESKTOP-ABC".to_string(),
+            username: Some("alice".to_string()),
+            domain: Some("WORKGROUP".to_string()),
+            process_id: Some("1234".to_string()),
+            process_name: Some("explorer.exe".to_string()),
+            ip_address: Some("192.168.1.10".to_string()),
+            port: Some("443".to_string()),
+            logon_type: Some("2".to_string()),
+            command_line: None,
+            parent_process: None,
+            target_username: Some("bob".to_string()),
+            target_domain: None,
+            workstation: None,
+            auth_package: None,
+            extra_fields: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn test_contains_case_insensitive() {
+        assert!(contains_case_insensitive("Hello World", "hello"));
+        assert!(contains_case_insensitive("Hello World", "world"));
+        assert!(!contains_case_insensitive("Hello World", "earth"));
+    }
+
+    #[test]
+    fn test_record_matches_keyword() {
+        let mut r = create_mock_record(4624, "2024-01-01T12:00:00Z");
+        assert!(record_matches_keyword(&r, "alice"));
+        assert!(record_matches_keyword(&r, "desktop"));
+        assert!(record_matches_keyword(&r, "4624"));
+        
+        r.extra_fields.insert("CustomKey".to_string(), "SpecialValue".to_string());
+        assert!(record_matches_keyword(&r, "special"));
+        assert!(record_matches_keyword(&r, "customkey"));
+        
+        assert!(!record_matches_keyword(&r, "nonexistent"));
+    }
+
+    #[test]
+    fn test_apply_filters_empty() {
+        let records = vec![create_mock_record(4624, "2024-01-01T12:00:00Z")];
+        let filters = FilterConfig::default();
+        let result = apply_filters(records.clone(), &filters);
+        assert_eq!(result.len(), 1);
+    }
+
+    #[test]
+    fn test_filter_by_hostname() {
+        let records = vec![
+            create_mock_record(1, "2024-01-01T12:00:00Z"),
+            {
+                let mut r = create_mock_record(2, "2024-01-01T12:00:00Z");
+                r.computer = "SERVER-XYZ".to_string();
+                r
+            },
+        ];
+        let mut filters = FilterConfig::default();
+        filters.hostname = Some("server".to_string());
+        let result = apply_filters(records, &filters);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].computer, "SERVER-XYZ");
+    }
+
+    #[test]
+    fn test_filter_by_username() {
+        let records = vec![
+            create_mock_record(1, "2024-01-01T12:00:00Z"), // alice, target bob
+            {
+                let mut r = create_mock_record(2, "2024-01-01T12:00:00Z");
+                r.username = Some("charlie".to_string());
+                r.target_username = None;
+                r
+            },
+        ];
+        
+        // Match subject username
+        let mut filters = FilterConfig::default();
+        filters.username = Some("alice".to_string());
+        assert_eq!(apply_filters(records.clone(), &filters).len(), 1);
+
+        // Match target username
+        filters.username = Some("bob".to_string());
+        assert_eq!(apply_filters(records.clone(), &filters).len(), 1);
+
+        // No match
+        filters.username = Some("dave".to_string());
+        assert_eq!(apply_filters(records.clone(), &filters).len(), 0);
+    }
+
+    #[test]
+    fn test_filter_by_time_range() {
+        let records = vec![
+            create_mock_record(1, "2024-01-01T10:00:00Z"),
+            create_mock_record(2, "2024-01-01T12:00:00Z"),
+            create_mock_record(3, "2024-01-01T14:00:00Z"),
+        ];
+
+        let mut filters = FilterConfig::default();
+        filters.date_from = Some("2024-01-01T11:00:00Z".to_string());
+        filters.date_to = Some("2024-01-01T13:00:00Z".to_string());
+        
+        let result = apply_filters(records, &filters);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].event_id, 2);
+    }
+
+    #[test]
+    fn test_filter_by_pid_and_ip() {
+        let mut r1 = create_mock_record(1, "2024-01-01T12:00:00Z");
+        r1.process_id = Some("1000".to_string());
+        r1.ip_address = Some("10.0.0.1".to_string());
+
+        let mut r2 = create_mock_record(2, "2024-01-01T12:00:00Z");
+        r2.process_id = Some("2000".to_string());
+        r2.ip_address = Some("192.168.1.1".to_string());
+
+        let records = vec![r1, r2];
+
+        let mut filters = FilterConfig::default();
+        filters.process_id = Some("10".to_string()); // partial match
+        filters.ip_address = Some("10.0".to_string());
+        
+        let result = apply_filters(records, &filters);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].event_id, 1);
+    }
+
+    #[test]
+    fn test_filter_custom_field() {
+        let mut r1 = create_mock_record(1, "2024-01-01T12:00:00Z");
+        r1.extra_fields.insert("SubStatus".to_string(), "0xc000006d".to_string());
+
+        let records = vec![r1, create_mock_record(2, "2024-01-01T12:00:00Z")];
+
+        // Match by key existence
+        let mut filters = FilterConfig::default();
+        filters.custom_field_name = Some("SubStatus".to_string());
+        assert_eq!(apply_filters(records.clone(), &filters).len(), 1);
+
+        // Match by key and value
+        filters.custom_field_value = Some("0x".to_string());
+        assert_eq!(apply_filters(records.clone(), &filters).len(), 1);
+
+        // No match by value
+        filters.custom_field_value = Some("0xf".to_string());
+        assert_eq!(apply_filters(records.clone(), &filters).len(), 0);
+    }
+
+    #[test]
+    fn test_keyword_search_with_context() {
+        let records = vec![
+            create_mock_record(1, "2024-01-01T12:00:01Z"),
+            create_mock_record(2, "2024-01-01T12:00:02Z"),
+            {
+                let mut r = create_mock_record(3, "2024-01-01T12:00:03Z");
+                r.computer = "TARGET-PC".to_string();
+                r
+            },
+            create_mock_record(4, "2024-01-01T12:00:04Z"),
+            create_mock_record(5, "2024-01-01T12:00:05Z"),
+        ];
+
+        let mut filters = FilterConfig::default();
+        filters.keyword = Some("TARGET".to_string());
+        filters.keyword_context = Some(1);
+
+        let result = apply_filters(records, &filters);
+        // Should include record 3 and its neighbours 2 and 4.
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0].event_id, 2);
+        assert_eq!(result[1].event_id, 3);
+        assert_eq!(result[2].event_id, 4);
+    }
+
+    #[test]
+    fn test_relative_days_calculation() {
+        let now = Utc::now();
+        // Use RFC3339 which is a subset of ISO 8601 and compatible with the parser
+        let records = vec![
+            create_mock_record(1, &(now - Duration::hours(1)).to_rfc3339()),  // 1 hour ago
+            create_mock_record(2, &(now - Duration::days(5)).to_rfc3339()),   // 5 days ago
+            create_mock_record(3, &(now - Duration::days(10)).to_rfc3339()),  // 10 days ago
+        ];
+
+        let mut filters = FilterConfig::default();
+        filters.relative_days = Some(7); // Last 7 days
+
+        let result = apply_filters(records, &filters);
+        // Should include records 1 and 2, but not 3.
+        assert_eq!(result.len(), 2);
+        assert!(result.iter().any(|r| r.event_id == 1));
+        assert!(result.iter().any(|r| r.event_id == 2));
+        assert!(!result.iter().any(|r| r.event_id == 3));
+    }
 }

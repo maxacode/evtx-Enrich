@@ -50,6 +50,46 @@ pub struct AppState {
 }
 
 // ---------------------------------------------------------------------------
+// Persistence Commands
+// ---------------------------------------------------------------------------
+
+fn get_config_path(app_handle: &tauri::AppHandle) -> PathBuf {
+    let data_dir = app_handle.path_resolver().app_local_data_dir()
+        .unwrap_or_else(|| PathBuf::from("."));
+    // Ensure the directory exists
+    let _ = std::fs::create_dir_all(&data_dir);
+    data_dir.join("app_state.json")
+}
+
+#[tauri::command]
+fn save_app_state(
+    app_handle: tauri::AppHandle,
+    state: types::AppStatePersistent,
+) -> Result<(), String> {
+    let path = get_config_path(&app_handle);
+    let content = serde_json::to_string_pretty(&state)
+        .map_err(|e| format!("Serialization error: {}", e))?;
+    std::fs::write(&path, content)
+        .map_err(|e| format!("Failed to write state file: {}", e))?;
+    Ok(())
+}
+
+#[tauri::command]
+fn load_app_state(
+    app_handle: tauri::AppHandle,
+) -> Result<Option<types::AppStatePersistent>, String> {
+    let path = get_config_path(&app_handle);
+    if !path.exists() {
+        return Ok(None);
+    }
+    let content = std::fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read state file: {}", e))?;
+    let state: types::AppStatePersistent = serde_json::from_str(&content)
+        .map_err(|e| format!("Deserialization error: {}", e))?;
+    Ok(Some(state))
+}
+
+// ---------------------------------------------------------------------------
 // Signatures file resolution and loading
 // ---------------------------------------------------------------------------
 
@@ -72,26 +112,21 @@ fn init_signatures(app_handle: &tauri::AppHandle) -> (Vec<PatternSpec>, PathBuf)
     // 2. Seeding Logic: If Documents version doesn't exist, try to create it
     if let (Some(target), Some(parent)) = (&doc_path, &doc_dir) {
         if !target.exists() {
-            // Try seeding from bundled resource
-            let mut seeded = false;
-            
             // Try resolving as "signatures.json" (matches tauri.conf.json resources)
             if let Some(res_path) = app_handle.path_resolver().resolve_resource("signatures.json") {
                 if let Ok(content) = std::fs::read_to_string(&res_path) {
                     let _ = std::fs::create_dir_all(parent);
                     if std::fs::write(target, content).is_ok() {
-                        seeded = true;
                         eprintln!("[main] Seeded signatures.json from resource to {:?}", target);
                     }
                 }
             }
 
             // Fallback: seed from working directory (for dev)
-            if !seeded && cwd_path.exists() {
+            if cwd_path.exists() {
                 if let Ok(content) = std::fs::read_to_string(&cwd_path) {
                     let _ = std::fs::create_dir_all(parent);
                     if std::fs::write(target, content).is_ok() {
-                        seeded = true;
                         eprintln!("[main] Seeded signatures.json from CWD to {:?}", target);
                     }
                 }
@@ -163,6 +198,45 @@ fn parse_evtx(
     filters: types::FilterConfig,
 ) -> Result<Vec<types::EventRecord>, String> {
     evtx_parser::parse_evtx_file(&path, &filters)
+}
+
+/// Recursively find all .evtx files in a directory.
+#[tauri::command]
+fn list_evtx_in_dir(path: String, recursive: bool) -> Result<Vec<String>, String> {
+    use std::fs;
+    use std::path::Path;
+
+    fn collect_files(dir: &Path, recursive: bool, acc: &mut Vec<String>) -> std::io::Result<()> {
+        if dir.is_dir() {
+            for entry in fs::read_dir(dir)? {
+                let entry = entry?;
+                let path = entry.path();
+                if path.is_dir() {
+                    if recursive {
+                        collect_files(&path, recursive, acc)?;
+                    }
+                } else if let Some(ext) = path.extension() {
+                    if ext.to_string_lossy().eq_ignore_ascii_case("evtx") {
+                        acc.push(path.to_string_lossy().to_string());
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    let mut files = Vec::new();
+    let root_path = Path::new(&path);
+    if !root_path.exists() {
+        return Err(format!("Directory does not exist: {}", path));
+    }
+    
+    collect_files(root_path, recursive, &mut files).map_err(|e| e.to_string())?;
+    
+    // Sort files alphabetically for a better UI experience
+    files.sort();
+    
+    Ok(files)
 }
 
 /// Quickly scan an .evtx for record count and date ranges.
@@ -252,6 +326,173 @@ fn get_signatures_info(
     serde_json::json!({ "count": count, "path": path })
 }
 
+/// Open a native directory picker and return the selected path.
+#[tauri::command]
+async fn select_directory(window: tauri::Window) -> Result<Option<String>, String> {
+    use tauri::api::dialog::blocking::FileDialogBuilder;
+    
+    if cfg!(debug_assertions) {
+        eprintln!("[dialog] select_directory invoked");
+    }
+    let path = FileDialogBuilder::new()
+        .set_parent(&window)
+        .pick_folder();
+    if cfg!(debug_assertions) && path.is_none() {
+        eprintln!("[dialog] select_directory: dialog returned None (cancelled or failed)");
+    }
+    Ok(path.map(|p| p.to_string_lossy().to_string()))
+}
+
+/// Open a native file picker and return selected .evtx files.
+#[tauri::command]
+async fn select_evtx_files(window: tauri::Window) -> Result<Vec<String>, String> {
+    use tauri::api::dialog::blocking::FileDialogBuilder;
+
+    if cfg!(debug_assertions) {
+        eprintln!("[dialog] select_evtx_files invoked");
+    }
+    let paths = FileDialogBuilder::new()
+        .set_parent(&window)
+        .add_filter("Event Log", &["evtx"])
+        .pick_files();
+    if cfg!(debug_assertions) && paths.is_none() {
+        eprintln!("[dialog] select_evtx_files: dialog returned None (cancelled or failed)");
+    }
+
+    Ok(paths
+        .unwrap_or_default()
+        .into_iter()
+        .map(|p| p.to_string_lossy().to_string())
+        .collect())
+}
+
+/// Open a native save dialog for a CSV file and return the chosen path.
+#[tauri::command]
+async fn select_save_csv(window: tauri::Window, default_name: String) -> Result<Option<String>, String> {
+    use tauri::api::dialog::blocking::FileDialogBuilder;
+
+    if cfg!(debug_assertions) {
+        eprintln!("[dialog] select_save_csv invoked (default_name={})", default_name);
+    }
+
+    let file_name = if default_name.to_lowercase().ends_with(".csv") {
+        default_name
+    } else {
+        format!("{}.csv", default_name)
+    };
+
+    let path = FileDialogBuilder::new()
+        .set_parent(&window)
+        .set_file_name(&file_name)
+        .add_filter("CSV", &["csv"])
+        .save_file();
+
+    if cfg!(debug_assertions) && path.is_none() {
+        eprintln!("[dialog] select_save_csv: dialog returned None (cancelled or failed)");
+    }
+
+    Ok(path.map(|p| p.to_string_lossy().to_string()))
+}
+
+/// Open a native save dialog for a Markdown file and return the chosen path.
+#[tauri::command]
+async fn select_save_md(window: tauri::Window, default_name: String) -> Result<Option<String>, String> {
+    use tauri::api::dialog::blocking::FileDialogBuilder;
+
+    if cfg!(debug_assertions) {
+        eprintln!("[dialog] select_save_md invoked (default_name={})", default_name);
+    }
+
+    let file_name = if default_name.to_lowercase().ends_with(".md") {
+        default_name
+    } else {
+        format!("{}.md", default_name)
+    };
+
+    let path = FileDialogBuilder::new()
+        .set_parent(&window)
+        .set_file_name(&file_name)
+        .add_filter("Markdown", &["md"])
+        .save_file();
+
+    if cfg!(debug_assertions) && path.is_none() {
+        eprintln!("[dialog] select_save_md: dialog returned None (cancelled or failed)");
+    }
+
+    Ok(path.map(|p| p.to_string_lossy().to_string()))
+}
+
+/// Reveal the given path in the system file manager (Finder/Explorer).
+/// Best-effort cross-platform: on macOS uses `open -R <path>`, on Windows uses
+/// `explorer /select, <path>`, on Linux opens the parent folder via `xdg-open`.
+#[tauri::command]
+async fn reveal_in_folder(path: String) -> Result<(), String> {
+    use std::path::PathBuf;
+    use std::process::Command;
+
+    let path_buf = PathBuf::from(&path);
+    if !path_buf.exists() {
+        return Err(format!("Path does not exist: {}", path));
+    }
+
+    if cfg!(debug_assertions) {
+        eprintln!("[shell] reveal_in_folder invoked (path={})", path);
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let status = Command::new("open")
+            .arg("-R")
+            .arg(&path_buf)
+            .status()
+            .map_err(|e| format!("Failed to launch Finder reveal: {}", e))?;
+        if !status.success() {
+            return Err(format!("Finder reveal failed with status: {}", status));
+        }
+        return Ok(());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let status = Command::new("explorer")
+            .arg("/select,")
+            .arg(&path_buf)
+            .status()
+            .map_err(|e| format!("Failed to launch Explorer reveal: {}", e))?;
+        if !status.success() {
+            return Err(format!("Explorer reveal failed with status: {}", status));
+        }
+        return Ok(());
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let folder = path_buf
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or(path_buf);
+        let status = Command::new("xdg-open")
+            .arg(&folder)
+            .status()
+            .map_err(|e| format!("Failed to launch file manager: {}", e))?;
+        if !status.success() {
+            return Err(format!("File manager reveal failed with status: {}", status));
+        }
+        return Ok(());
+    }
+}
+
+/// Get system username and hostname.
+#[tauri::command]
+fn get_system_info() -> Result<serde_json::Value, String> {
+    let username = whoami::username();
+    let hostname = whoami::hostname();
+    Ok(serde_json::json!({
+        "username": username,
+        "hostname": hostname
+    }))
+}
+
 // ---------------------------------------------------------------------------
 // Application entry point
 // ---------------------------------------------------------------------------
@@ -269,37 +510,46 @@ fn main() {
                 signatures_path: Mutex::new(path),
             });
 
-            // ---------------------------------------------------------------
-            // Splash screen — show for 500 ms then swap to main window
-            // ---------------------------------------------------------------
-            let handle = app.handle();
-            std::thread::spawn(move || {
-                // Wait 500 ms on a background thread (never block the main thread)
-                std::thread::sleep(Duration::from_millis(500));
-
-                // Show the main window
-                if let Some(main_win) = handle.get_window("main") {
-                    let _ = main_win.show();
-                    let _ = main_win.set_focus();
-                }
-
-                // Close the splash window
-                if let Some(splash_win) = handle.get_window("splash") {
-                    let _ = splash_win.close();
-                }
-            });
-
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             get_evtx_summary,
             parse_evtx,
+            list_evtx_in_dir,
             export_csv,
             run_enrichment_check,
             enrich_records,
             reload_signatures,
             get_signatures_info,
+            save_app_state,
+            load_app_state,
+            select_directory,
+            select_evtx_files,
+            select_save_csv,
+            select_save_md,
+            reveal_in_folder,
+            get_system_info,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_system_info() {
+        let result = get_system_info().expect("get_system_info failed");
+        let obj = result.as_object().expect("Result is not an object");
+        
+        assert!(obj.contains_key("username"), "Missing username");
+        assert!(obj.contains_key("hostname"), "Missing hostname");
+        
+        let username = obj.get("username").unwrap().as_str().expect("Username is not a string");
+        let hostname = obj.get("hostname").unwrap().as_str().expect("Hostname is not a string");
+        
+        assert!(!username.is_empty(), "Username is empty");
+        assert!(!hostname.is_empty(), "Hostname is empty");
+    }
 }

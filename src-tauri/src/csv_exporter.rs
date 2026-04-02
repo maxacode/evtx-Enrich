@@ -35,6 +35,14 @@ use crate::types::EventRecord;
 /// Returns `Ok(())` on success or `Err(String)` with a human-readable message
 /// if the file cannot be created or written to.
 pub fn export_to_csv(records: &[EventRecord], output_path: &str) -> Result<(), String> {
+    // Ensure parent directories exist
+    if let Some(parent) = std::path::Path::new(output_path).parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create parent directory for '{}': {}", output_path, e))?;
+        }
+    }
+
     // Create (or overwrite) the output file. csv::Writer handles buffered I/O
     // internally so we don't need to wrap it in a BufWriter.
     let mut writer = csv::Writer::from_path(output_path)
@@ -172,4 +180,143 @@ pub fn export_to_csv(records: &[EventRecord], output_path: &str) -> Result<(), S
         .map_err(|e| format!("Failed to flush CSV writer: {}", e))?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+    use std::fs;
+    use std::env;
+
+    fn create_mock_record() -> EventRecord {
+        EventRecord {
+            timestamp: "2024-01-01T12:00:00Z".to_string(),
+            event_id: 4624,
+            level: "Information".to_string(),
+            channel: "Security".to_string(),
+            computer: "DESKTOP-ABC".to_string(),
+            username: Some("alice".to_string()),
+            domain: Some("WORKGROUP".to_string()),
+            process_id: Some("1234".to_string()),
+            process_name: Some("explorer.exe".to_string()),
+            ip_address: Some("192.168.1.10".to_string()),
+            port: Some("443".to_string()),
+            logon_type: Some("2".to_string()),
+            command_line: None,
+            parent_process: None,
+            target_username: None,
+            target_domain: None,
+            workstation: None,
+            auth_package: None,
+            extra_fields: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn test_export_to_csv_basic() {
+        let mut r1 = create_mock_record();
+        r1.extra_fields.insert("CustomField".to_string(), "Value1".to_string());
+        
+        let records = vec![r1];
+        let tmp_dir = env::temp_dir();
+        let file_path = tmp_dir.join("test_export.csv");
+        let path_str = file_path.to_str().unwrap();
+
+        let result = export_to_csv(&records, path_str);
+        assert!(result.is_ok());
+
+        let contents = fs::read_to_string(path_str).unwrap();
+        let lines: Vec<&str> = contents.lines().collect();
+        
+        // Header + 1 record
+        assert_eq!(lines.len(), 2);
+        
+        // Check if header contains our custom field
+        assert!(lines[0].contains("CustomField"));
+        // Check if record contains our value
+        assert!(lines[1].contains("Value1"));
+
+        let _ = fs::remove_file(file_path);
+    }
+
+    #[test]
+    fn test_csv_escaping() {
+        let mut r1 = create_mock_record();
+        r1.username = Some("User, with comma".to_string());
+        r1.process_name = Some("Process \"with quotes\"".to_string());
+        r1.extra_fields.insert("Multiline".to_string(), "Line 1\nLine 2".to_string());
+
+        let records = vec![r1];
+        let tmp_dir = env::temp_dir();
+        let file_path = tmp_dir.join("test_escape.csv");
+        let path_str = file_path.to_str().unwrap();
+
+        export_to_csv(&records, path_str).unwrap();
+
+        let contents = fs::read_to_string(path_str).unwrap();
+        
+        // csv crate should wrap fields with commas/quotes in double quotes
+        assert!(contents.contains("\"User, with comma\""));
+        assert!(contents.contains("\"Process \"\"with quotes\"\"\""));
+        assert!(contents.contains("\"Line 1\nLine 2\""));
+
+        let _ = fs::remove_file(file_path);
+    }
+
+    #[test]
+    fn test_inactive_columns_filtered() {
+        let r1 = create_mock_record();
+        // r1 has most fields as None or empty, except timestamp, event_id, etc.
+        
+        let records = vec![r1];
+        let tmp_dir = env::temp_dir();
+        let file_path = tmp_dir.join("test_inactive.csv");
+        let path_str = file_path.to_str().unwrap();
+
+        export_to_csv(&records, path_str).unwrap();
+
+        let contents = fs::read_to_string(path_str).unwrap();
+        let header = contents.lines().next().unwrap();
+        
+        // target_username should be inactive and thus not in header
+        assert!(!header.contains("target_username"));
+        // timestamp should be active
+        assert!(header.contains("timestamp"));
+
+        let _ = fs::remove_file(file_path);
+    }
+
+    #[test]
+    fn test_export_to_csv_creates_directories() {
+        let records = vec![create_mock_record()];
+        let tmp_dir = env::temp_dir();
+        // Create a nested path that doesn't exist
+        let nested_path = tmp_dir.join("nonexistent_subdir").join("nested_test.csv");
+        let path_str = nested_path.to_str().unwrap();
+
+        // Ensure the parent directory doesn't exist before we run the test
+        if nested_path.parent().unwrap().exists() {
+            let _ = fs::remove_dir_all(nested_path.parent().unwrap());
+        }
+
+        let result = export_to_csv(&records, path_str);
+        assert!(result.is_ok());
+
+        assert!(nested_path.exists());
+
+        let _ = fs::remove_file(&nested_path);
+        let _ = fs::remove_dir(nested_path.parent().unwrap());
+    }
+
+    #[test]
+    fn test_export_to_csv_invalid_path() {
+        let records = vec![create_mock_record()];
+        // An empty string or a path that's literally impossible (e.g., trying to write into a file as if it were a directory)
+        let path_str = "/nonexistent_root_dir/some_file.csv"; // Typically fails on non-root users
+
+        let result = export_to_csv(&records, path_str);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Failed to"));
+    }
 }

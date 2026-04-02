@@ -18,7 +18,7 @@
 
 [package]
 name = "evtx-to-csv"
-version = "0.1.0"
+version = "0.1.1"
 description = "EventViewer .evtx to CSV converter with IR enrichment"
 authors = []
 license = ""
@@ -35,7 +35,7 @@ tauri-build = { version = "1", features = [] }
 [dependencies]
 # Tauri v1 runtime — dialog-open/dialog-save enable the OS file picker dialogs
 # that the frontend uses to let users select .evtx files and output CSV paths.
-tauri = { version = "1", features = [ "shell-open", "window-all", "dialog-all", "fs-all", "macos-private-api"] }
+tauri = { version = "1", features = [ "os-all", "http-all", "app-all", "shell-open", "window-all", "dialog-all", "fs-all"] }
 
 # serde + derive feature: automatically implement Serialize/Deserialize for our
 # custom structs (EventRecord, FilterConfig) so Tauri can marshal them over IPC.
@@ -61,6 +61,9 @@ regex = "1"
 
 # dirs-next: cross-platform path resolution for getting the Documents folder
 dirs-next = "2.0"
+
+# whoami: get system username and hostname
+whoami = "1.5"
 
 [features]
 # Activated during `tauri build` — switches Tauri to serve assets via the

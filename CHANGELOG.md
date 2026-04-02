@@ -1,33 +1,101 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
+All notable changes to this project are documented here.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), with an added commit-history section so the release notes match the repository history.
 
-## [Unreleased]
-
-## [0.1.0] - 2026-03-23
+## [0.1.1] - 2026-04-01
 
 ### Added
 
-- Initial release
-- Tauri v1 + Svelte 4 + TypeScript project scaffold
-- EVTX file parsing via Rust `evtx` crate (v0.8)
-- Multi-file support: load and manage multiple `.evtx` files simultaneously
-- Per-file filter panel with:
-  - Date range filter (from/to datetime)
-  - Relative date filter: 1, 3, 7, 14, 30 days
-  - Hostname filter (case-insensitive partial match)
-  - Username filter (matches `SubjectUserName` and `TargetUserName`)
-  - Process ID filter
-  - IP Address filter (matches any IP-related EventData field)
-  - Custom field filter (field name + optional value)
-- CSV export with IR-focused columns: `timestamp`, `event_id`, `level`, `channel`, `computer`, `username`, `domain`, `target_username`, `target_domain`, `process_id`, `process_name`, `ip_address`, `port`, `logon_type`, `command_line`, `parent_process`, `workstation`, `auth_package`, plus all additional EventData fields
-- Incident Response enrichment check against `suspicious-commands.txt` regex patterns
-  - Detects: PowerShell obfuscation/download/bypass, LOLBin abuse, defense evasion, credential dumping, remote access tools, persistence mechanisms
-  - Outputs `report.md` alongside the CSV export
-  - Toggle checkbox (enabled by default)
-- Dark-themed UI designed for incident responders
-- Drag-and-drop `.evtx` file support
-- Cross-platform builds: macOS and Windows
-- `.gitignore` for Rust, Node, and Tauri artifacts
+- `.evtx` file summaries with date range, record count, and top event IDs.
+- LLM-optimized export mode with aggressive filtering, shortened strings, and empty-column removal.
+- More signature coverage over multiple follow-up signature updates.
+- Global filters that can be applied across multiple loaded files.
+- Keyword search and multi-file to single-CSV export support.
+- Native dialog and file-management improvements.
+- Combined enrich-and-export workflow that produces one output CSV.
+- Refreshed documentation, technical README content, sample report, and GitHub Actions build workflow.
+
+### Changed
+
+- Renamed the application consistently to `evtx-to-csv` across the app, docs, and packaging.
+- Hardened signatures initialization and path resolution, including better dev-mode behavior and Documents-folder seeding.
+- Improved macOS and Windows packaging, signing diagnostics, and native build workflow reliability.
+- GUI now shows the shipped application version in the header and footer.
+
+### Fixed
+
+- Multiple signature initialization issues, including reload failures and syntax errors.
+- App syntax regression in `App.svelte`.
+- Windows icon packaging and macOS build target/signing issues.
+
+### Commit History
+
+#### 2026-04-01
+
+- `2d431c1` Make manual signing test extremely verbose
+- `7d95a6e` Add secret length check to Test Signing
+- `029530e` Verify certificate password with openssl
+- `5febc17` Count certificate bags in p12
+- `27ba4c1` Check security import exit code and file type
+- `8ef76cb` Final workflow cleanup (ready for correct p12 secret)
+
+#### 2026-03-31
+
+- `ec889ae` New Readme and technical readme.
+- `97028db` Sample report added
+- `1066cc4` build for github actions
+- `6b7dd6e` Fix syntax error in App.svelte
+- `00aff4b` Fix Windows missing icon and macOS universal build targets
+- `f424180` Final fixes for Windows icons and macOS signing identity
+- `69c9531` Add debug identities step and revert to secret for signing identity
+- `d27891a` Test native macOS build (removed universal) and fix debug step shell
+- `83037c7` Add Test Signing step and disable macOSPrivateApi for debugging
+- `cdfca07` Improve Test Signing script to find exact identity string
+- `eb126e6` Dump certificate details in Test Signing
+
+#### 2026-03-30
+
+- `380ea2c` feat: Enhanced native dialog handling and file management features
+- `f339a21` Merge branch 'features-todo' into main
+- `69540d7` Merge pull request #4 from maxacode/main
+- `2d1160d` Merge pull request #5 from maxacode/features-todo
+- `5a62e27` Added enrich and combine into 1 output csv
+
+#### 2026-03-27
+
+- `575d4bd` added more signatures
+- `8a749e0` Global filters added
+- `ced4739` Merge pull request #1 from maxacode:multi-file-same-filter
+- `50b4913` Keyword search, multi-to-singl csv output
+- `ae31b31` Merge pull request #2 from maxacode/more-signatures
+
+#### 2026-03-26
+
+- `d2d1dea` Added more signatures
+
+#### 2026-03-25
+
+- `e87a4f0` Refactor signature initialization and update resource paths for consistency
+
+#### 2026-03-24
+
+- `7672138` Initial commit - Rename to evtx-to-csv and add quick action buttons
+- `fe04a3d` Complete rename to evtx-to-csv in all files and update documentation
+- `e4a11eb` Add .evtx file summary feature (dates, record count, top event IDs)
+- `839c3ae` Implement LLM-Optimized Export mode with aggressive filtering, string shortening, and empty column removal
+- `4afb026` Robust signatures seeding and resolution (fix reload error)
+- `499f9a0` Prioritize working directory for signatures in dev mode
+- `c892275` Fix syntax error in init_signatures
+- `19635f2` Ensure signatures are seeded to Documents folder on first run (dev and prod)
+- `7fa88e7` Add debugging logs for signature initialization
+- `5253521` Final fix for Documents folder seeding
+
+## [0.1.0] - 2026-03-24
+
+### Added
+
+- Initial desktop release of `evtx-to-csv`.
+- Tauri + Svelte + TypeScript application shell.
+- EVTX parsing, CSV export, enrichment checks, and multi-file workflow foundation.

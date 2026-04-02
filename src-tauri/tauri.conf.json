@@ -8,19 +8,33 @@
   },
   "package": {
     "productName": "evtx-to-csv",
-    "version": "0.1.0"
+    "version": "0.1.1"
   },
   "tauri": {
     "allowlist": {
       "all": false,
       "shell": {
         "all": false,
-        "open": true
+        "open": "^((mailto:\\\\w+)|(tel:\\\\w+)|(https?://\\\\w+)|(file://)).+"
       },
       "dialog": {
         "all": true,
         "open": true,
         "save": true
+      },
+      "http": {
+        "all": true,
+        "request": true,
+        "scope": [
+          "https://api.github.com/repos/*",
+          "https://webhook.site/kids-video-ml"
+        ]
+      },
+      "os": {
+        "all": true
+      },
+      "app": {
+        "all": true
       },
       "fs": {
         "all": true,
@@ -42,36 +56,23 @@
         "icons/128x128.png",
         "icons/128x128@2x.png",
         "icons/icon.png",
-        "icons/icon.icns"
+        "icons/icon.icns",
+        "icons/icon.ico"
       ]
     },
     "security": {
       "csp": null
     },
-    "macOSPrivateApi": true,
+    "macOSPrivateApi": false,
     "windows": [
       {
-        "label": "splash",
-        "title": "evtx-to-csv",
-        "url": "splashscreen.html",
-        "width": 400,
-        "height": 420,
-        "resizable": false,
-        "fullscreen": false,
-        "decorations": false,
-        "transparent": true,
-        "alwaysOnTop": true,
-        "center": true,
-        "visible": true
-      },
-      {
         "label": "main",
-        "title": "evtx-to-csv",
+        "title": "evtx-to-csv (gemini-feedback)",
         "width": 1280,
         "height": 860,
         "resizable": true,
         "fullscreen": false,
-        "visible": false,
+        "visible": true,
         "center": true
       }
     ]

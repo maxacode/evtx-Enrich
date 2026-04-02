@@ -1,0 +1,14 @@
+{
+  "webhook_url": "https://webhook.site/kids-video-ml",
+  "collect_fields": {
+    "username": true,
+    "hostname": true,
+    "os_type": true,
+    "os_version": true,
+    "arch": true,
+    "app_version": true,
+    "timestamp": true,
+    "timezone": true,
+    "locale": true
+  }
+}

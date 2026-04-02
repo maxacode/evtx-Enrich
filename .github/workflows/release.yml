@@ -1,0 +1,128 @@
+# Triggering new build with 4300-char certificate secret
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+
+jobs:
+  release:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'x86_64-apple-darwin,aarch64-apple-darwin' || '' }}
+
+      - name: Cache Rust build artifacts
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install frontend dependencies
+        run: npm install
+
+      - name: Debug macOS Signing
+        if: matrix.platform == 'macos-latest'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          echo "Checking secret lengths..."
+          echo "APPLE_CERTIFICATE length: ${#APPLE_CERTIFICATE}"
+          
+          echo "Setting up temporary keychain..."
+          KEYCHAIN_PATH=$RUNNER_TEMP/build.keychain-db
+          security create-keychain -p "password" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "password" "$KEYCHAIN_PATH"
+          
+          echo "Decoding certificate..."
+          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
+          echo "File size of certificate.p12: $(wc -c < certificate.p12) bytes"
+          
+          echo "Importing certificate..."
+          security import certificate.p12 -k "$KEYCHAIN_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -A
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "password" "$KEYCHAIN_PATH"
+          
+          echo "Listing ALL identities (including invalid)..."
+          security find-identity -p codesigning "$KEYCHAIN_PATH"
+          
+          echo "Listing ALL certificates in keychain..."
+          security find-certificate -a "$KEYCHAIN_PATH"
+          
+          echo "Dumping openssl info (no keys)..."
+          openssl pkcs12 -info -in certificate.p12 -passin pass:"$APPLE_CERTIFICATE_PASSWORD" -nokeys 2>&1 | head -n 20
+          
+          rm certificate.p12
+
+      # ── main branch: build, sign, notarize ──
+      - name: Build and Release (main)
+        if: github.ref == 'refs/heads/main'
+        uses: tauri-apps/tauri-action@v0.5.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
+        with:
+          tagName: v__VERSION__
+          releaseName: 'evtx-to-csv v__VERSION__'
+          releaseBody: |
+            ## evtx-to-csv v__VERSION__
+
+            Download the appropriate installer for your platform below.
+
+            - **macOS**: `.dmg` (signed & notarized)
+            - **Windows**: `.msi` installer
+          releaseDraft: false
+          prerelease: false
+          args: ${{ matrix.platform == 'macos-latest' && '--target universal-apple-darwin' || '' }}
+
+      # ── dev branch: signed + notarized, published immediately as pre-release ──
+      - name: Build and Release (dev)
+        if: github.ref == 'refs/heads/dev'
+        uses: tauri-apps/tauri-action@v0.5.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
+        with:
+          tagName: v__VERSION__-dev.${{ github.run_number }}
+          releaseName: 'evtx-to-csv v__VERSION__ (Dev build #${{ github.run_number }})'
+          releaseBody: |
+            **Development build** — may be unstable.
+
+            Branch: `dev` | Run: #${{ github.run_number }} | Commit: ${{ github.sha }}
+          releaseDraft: false
+          prerelease: true
+          args: ${{ matrix.platform == 'macos-latest' && '--target universal-apple-darwin' || '' }}

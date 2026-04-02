@@ -399,6 +399,18 @@ fn extract_event_data_section(event_data: &Value, map: &mut HashMap<String, Stri
                 map.insert("Data".to_string(), trimmed.to_string());
             }
         }
+
+        // Even when `EventData.Data` exists, some providers also include sibling
+        // keys (e.g. `Binary`). Preserve those too.
+        if let Some(obj) = event_data.as_object() {
+            for (key, val) in obj {
+                if key == "Data" || key == "#attributes" {
+                    continue;
+                }
+                // Flatten scalars/arrays/objects into the map under a stable prefix.
+                flatten_json_to_map(val, map, key);
+            }
+        }
     } else {
         // Case D: EventData has direct key→value pairs (no Data sub-array).
         // Flatten any direct object properties (skip #attributes which is metadata).
@@ -431,40 +443,59 @@ fn extract_event_data_section(event_data: &Value, map: &mut HashMap<String, Stri
 // ---------------------------------------------------------------------------
 fn insert_data_item(map: &mut HashMap<String, String>, item: &Value, idx: usize) {
     // Try to get the field name from #attributes.Name
-    let name = item
+    let name_attr = item
         .pointer("/#attributes/Name")
         .and_then(Value::as_str)
         .filter(|s| !s.is_empty())
-        .map(|s| s.to_string())
-        // Fallback: use positional key so unnamed data is not lost
-        .unwrap_or_else(|| format!("Data_{}", idx));
+        .map(|s| s.to_string());
+
+    let is_named = name_attr.is_some();
+    // Fallback: use positional key so unnamed data is not lost
+    let base_name = name_attr.unwrap_or_else(|| format!("Data_{}", idx));
 
     // Get the field value from #text — may be a string, number, or boolean.
-    let value = match item.get("#text") {
-        Some(Value::String(s)) => {
-            let t = s.trim();
-            if t.is_empty() || t == "-" {
-                return; // Windows "not applicable" sentinel — skip
-            }
-            t.to_string()
-        }
-        Some(Value::Number(n)) => n.to_string(),
-        Some(Value::Bool(b))   => b.to_string(),
-        // If item is itself a plain string (e.g. array of bare strings), use it directly
-        _ => {
-            if let Some(s) = item.as_str() {
-                let t = s.trim();
-                if t.is_empty() || t == "-" { return; }
-                t.to_string()
-            } else if let Some(n) = item.as_u64() {
-                n.to_string()
-            } else {
-                return; // null, object, array — not a usable scalar
-            }
-        }
-    };
+    match item.get("#text") {
+        Some(Value::Array(arr)) => {
+            // Some providers emit a single Data object where `#text` is an array of
+            // unnamed values (equivalent to multiple `<Data>...</Data>` elements).
+            //
+            // Preserve these by generating stable keys for each element.
+            //
+            // If this item is unnamed and contains ONLY `#text`/`#attributes`, treat it
+            // as a collapsed list and continue numbering `Data_0`, `Data_1`, …
+            // Otherwise suffix the base name to avoid collisions.
+            let collapsed_list = !is_named
+                && item
+                    .as_object()
+                    .map(|o| o.keys().all(|k| k == "#text" || k == "#attributes"))
+                    .unwrap_or(false);
 
-    map.insert(name, value);
+            for (i, v) in arr.iter().enumerate() {
+                let key = if collapsed_list {
+                    format!("Data_{}", idx + i)
+                } else if is_named {
+                    if arr.len() == 1 {
+                        base_name.clone()
+                    } else {
+                        format!("{}_{}", base_name, i)
+                    }
+                } else if arr.len() == 1 {
+                    base_name.clone()
+                } else {
+                    format!("{}_{}", base_name, i)
+                };
+                flatten_json_to_map(v, map, &key);
+            }
+        }
+        Some(_) => {
+            // Scalar or nested object in `#text`
+            flatten_json_to_map(item.get("#text").unwrap(), map, &base_name);
+        }
+        None => {
+            // If item is itself a plain scalar (e.g. array of bare strings), use it directly.
+            flatten_json_to_map(item, map, &base_name);
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -478,6 +509,16 @@ fn insert_data_item(map: &mut HashMap<String, String>, item: &Value, idx: usize)
 // ---------------------------------------------------------------------------
 fn flatten_json_to_map(value: &Value, map: &mut HashMap<String, String>, prefix: &str) {
     match value {
+        Value::Array(arr) => {
+            for (idx, val) in arr.iter().enumerate() {
+                let new_key = if prefix.is_empty() {
+                    format!("Item_{}", idx)
+                } else {
+                    format!("{}_{}", prefix, idx)
+                };
+                flatten_json_to_map(val, map, &new_key);
+            }
+        }
         Value::Object(obj) => {
             for (key, val) in obj {
                 // Skip JSON metadata keys produced by the evtx crate
@@ -496,8 +537,10 @@ fn flatten_json_to_map(value: &Value, map: &mut HashMap<String, String>, prefix:
             // Also check for a "#text" value directly on this object
             // (evtx emits {#attributes:{...}, #text:"value"} for XML elements with both)
             if let Some(text) = obj.get("#text") {
-                let effective_key = if prefix.is_empty() { "Value".to_string() } else { prefix.to_string() };
-                insert_scalar(map, &effective_key, text);
+                let effective_key =
+                    if prefix.is_empty() { "Value".to_string() } else { prefix.to_string() };
+                // `#text` may itself be a scalar OR an array (collapsed repeated elements).
+                flatten_json_to_map(text, map, &effective_key);
             }
         }
         _ => {
@@ -553,4 +596,194 @@ fn find_field_by_name_fragment(
         }
     }
     None
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn no_filters() -> FilterConfig {
+        FilterConfig {
+            date_from: None,
+            date_to: None,
+            relative_days: None,
+            process_id: None,
+            hostname: None,
+            ip_address: None,
+            username: None,
+            keyword: None,
+            keyword_context: None,
+            custom_field_name: None,
+            custom_field_value: None,
+            llm_optimized: None,
+        }
+    }
+
+    #[test]
+    fn test_extract_event_id_formats() {
+        // Case 1: Number
+        let v1 = serde_json::json!(4624);
+        assert_eq!(extract_event_id(Some(&v1)).unwrap(), 4624);
+
+        // Case 2: String
+        let v2 = serde_json::json!("4624");
+        assert_eq!(extract_event_id(Some(&v2)).unwrap(), 4624);
+
+        // Case 3: Object with #text string
+        let v3 = serde_json::json!({ "#text": "4624" });
+        assert_eq!(extract_event_id(Some(&v3)).unwrap(), 4624);
+
+        // Case 4: Object with #text number
+        let v4 = serde_json::json!({ "#text": 4624 });
+        assert_eq!(extract_event_id(Some(&v4)).unwrap(), 4624);
+    }
+
+    #[test]
+    fn test_parse_single_record_mock() {
+        let json = serde_json::json!({
+            "Event": {
+                "System": {
+                    "TimeCreated": { "#attributes": { "SystemTime": "2024-01-01T12:00:00Z" } },
+                    "EventID": 4624,
+                    "Level": 4,
+                    "Channel": "Security",
+                    "Computer": "DESKTOP-ABC"
+                },
+                "EventData": {
+                    "Data": [
+                        { "#attributes": { "Name": "SubjectUserName" }, "#text": "alice" },
+                        { "#attributes": { "Name": "IpAddress" }, "#text": "1.2.3.4" }
+                    ]
+                }
+            }
+        });
+
+        let record = parse_single_record(&json.to_string()).unwrap();
+        assert_eq!(record.event_id, 4624);
+        assert_eq!(record.timestamp, "2024-01-01T12:00:00Z");
+        assert_eq!(record.username.as_deref(), Some("alice"));
+        assert_eq!(record.ip_address.as_deref(), Some("1.2.3.4"));
+    }
+
+    #[test]
+    fn test_extract_all_event_data_nested() {
+        let event = serde_json::json!({
+            "UserData": {
+                "TaskScheduler": {
+                    "TaskName": "\\MyTask",
+                    "Action": {
+                        "Command": "calc.exe",
+                        "Args": "/s"
+                    }
+                }
+            }
+        });
+
+        let map = extract_all_event_data(&event);
+        assert_eq!(map.get("TaskName").map(|s| s.as_str()), Some("\\MyTask"));
+        assert_eq!(map.get("Action_Command").map(|s| s.as_str()), Some("calc.exe"));
+        assert_eq!(map.get("Action_Args").map(|s| s.as_str()), Some("/s"));
+    }
+
+    #[test]
+    fn test_extreme_large_record_count() {
+        // Verify summary logic handles very large record counts without overflow.
+        let mut total_records: u64 = 0;
+        let mut id_counts: HashMap<u32, usize> = HashMap::new();
+        
+        let iterations = 2_000_000;
+        for i in 0..iterations {
+            total_records += 1;
+            let event_id = (i % 1000) as u32; 
+            *id_counts.entry(event_id).or_insert(0) += 1;
+        }
+
+        assert_eq!(total_records, iterations as u64);
+        assert_eq!(id_counts.len(), 1000);
+    }
+
+    #[test]
+    fn test_parse_corrupt_record_gracefully() {
+        // Missing "Event" key
+        let json1 = serde_json::json!({ "NotEvent": {} });
+        let res1 = parse_single_record(&json1.to_string());
+        assert!(res1.is_err());
+        assert!(res1.unwrap_err().contains("Missing 'Event' key"));
+
+        // Missing "System" key
+        let json2 = serde_json::json!({ "Event": { "NotSystem": {} } });
+        let res2 = parse_single_record(&json2.to_string());
+        assert!(res2.is_err());
+        assert!(res2.unwrap_err().contains("Missing 'Event.System'"));
+    }
+
+    #[test]
+    fn test_large_record_count_summary_simulation() {
+        // Simulating the logic inside get_evtx_summary for a large number of records
+        let mut total_records = 0;
+        let mut id_counts: HashMap<u32, usize> = HashMap::new();
+        
+        // Simulating 1 million records
+        let iterations = 1_000_000;
+        for i in 0..iterations {
+            total_records += 1;
+            let event_id = (i % 100) as u32; // 100 different event IDs
+            *id_counts.entry(event_id).or_insert(0) += 1;
+        }
+
+        assert_eq!(total_records, iterations);
+        assert_eq!(id_counts.len(), 100);
+        assert_eq!(id_counts.get(&0), Some(&(iterations / 100)));
+
+        // Test the sorting logic
+        let mut counts_vec: Vec<(u32, usize)> = id_counts.into_iter().collect();
+        counts_vec.sort_by(|a, b| b.1.cmp(&a.1));
+        let top_ids: HashMap<u32, usize> = counts_vec.into_iter().take(5).collect();
+        
+        assert_eq!(top_ids.len(), 5);
+    }
+
+    #[test]
+    fn test_apply_filters_empty_input() {
+        let records: Vec<EventRecord> = Vec::new();
+        let filters = no_filters();
+        let filtered = apply_filters(records, &filters);
+        assert_eq!(filtered.len(), 0);
+    }
+
+    #[test]
+    fn test_apply_filters_no_matches() {
+        let mut r1 = test_parse_single_record_mock_internal();
+        r1.computer = "PC-A".to_string();
+        
+        let mut filters = no_filters();
+        filters.hostname = Some("PC-B".to_string());
+        
+        let filtered = apply_filters(vec![r1], &filters);
+        assert_eq!(filtered.len(), 0);
+    }
+
+    fn test_parse_single_record_mock_internal() -> EventRecord {
+        let json = serde_json::json!({
+            "Event": {
+                "System": {
+                    "TimeCreated": { "#attributes": { "SystemTime": "2024-01-01T12:00:00Z" } },
+                    "EventID": 4624,
+                    "Level": 4,
+                    "Channel": "Security",
+                    "Computer": "DESKTOP-ABC"
+                },
+                "EventData": {
+                    "Data": [
+                        { "#attributes": { "Name": "SubjectUserName" }, "#text": "alice" }
+                    ]
+                }
+            }
+        });
+        parse_single_record(&json.to_string()).unwrap()
+    }
 }

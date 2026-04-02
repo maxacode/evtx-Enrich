@@ -41,10 +41,25 @@
 
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
+  import { getVersion } from '@tauri-apps/api/app';
+  import { writeTextFile } from '@tauri-apps/api/fs';
   import FileCard from './lib/components/FileCard.svelte';
-  import { openEvtxFiles, reloadSignatures, getSignaturesInfo } from './lib/tauri-api';
+  import FilterPanel from './lib/components/FilterPanel.svelte';
+  import FeedbackDialog from './lib/components/FeedbackDialog.svelte';
+  import {
+    openEvtxFiles,
+    openFolderDialog,
+    listEvtxInDir,
+    reloadSignatures,
+    getSignaturesInfo,
+    parseEvtx,
+    exportCsv,
+    saveFileDialog,
+    enrichRecords,
+    runEnrichmentCheck,
+  } from './lib/tauri-api';
   import { defaultFilters } from './lib/types';
-  import type { FileEntry } from './lib/types';
+  import type { EventRecord, FileEntry } from './lib/types';
 
   // -------------------------------------------------------------------------
   // Application state
@@ -52,6 +67,16 @@
 
   /** All loaded .evtx files, each represented as a FileEntry */
   let files: FileEntry[] = [];
+
+  /**
+   * Global filter configuration that can be applied to all files.
+   * Useful when an analyst wants to apply the same time range or
+   * hostname filter across multiple loaded logs at once.
+   */
+  let globalFilters = defaultFilters();
+
+  /** Whether the global filter panel in the toolbar is expanded */
+  let showGlobalFilters = false;
 
   /**
    * Global enrichment toggle.
@@ -63,6 +88,9 @@
   /** Info about the currently-loaded signatures.json (rule count + file path) */
   let signaturesInfo: { count: number; path: string } = { count: 0, path: '' };
 
+  /** Runtime app version shown in the header/footer. */
+  let appVersion = '0.1.1';
+
   /** True while a signatures reload is in progress */
   let refreshingSignatures = false;
 
@@ -70,11 +98,57 @@
   let refreshToast: string | null = null;
   let refreshToastTimer: ReturnType<typeof setTimeout> | null = null;
 
+  /** Whether a drag-over is currently in progress on the window.
+  /** True while a combined single-CSV export is in progress */
+  let exportingAll = false;
+
+  /** Whether the feedback dialog is visible */
+  let showFeedback = false;
+
+  /** Toast message shown briefly after an Export All action */
+  let exportAllToast: string | null = null;
+  let exportAllToastTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Toast message for file/folder picker errors */
+  let fileToast: string | null = null;
+  let fileToastTimer: ReturnType<typeof setTimeout> | null = null;
+
   /**
    * Whether a drag-over is currently in progress on the window.
    * Used to show a visual overlay/indication that drop is supported.
    */
   let isDragging: boolean = false;
+
+  /**
+   * Apply the global filter configuration to all currently loaded files.
+   * This resets each file's status to 'idle' so the analyst knows they
+   * need to be re-exported with the new settings.
+   */
+  function handleSyncGlobalFilters(): void {
+    if (files.length === 0) return;
+
+    files = files.map((f) => ({
+      ...f,
+      filters: { ...globalFilters },
+      // Reset status if it was previously done/error since filters changed
+      status: f.status === 'done' || f.status === 'error' ? 'idle' : f.status,
+      errorMessage: null,
+    }));
+
+    // Show a brief success toast
+    refreshToast = `✓ Applied filters to ${files.length} file${files.length !== 1 ? 's' : ''}`;
+    if (refreshToastTimer) clearTimeout(refreshToastTimer);
+    refreshToastTimer = setTimeout(() => {
+      refreshToast = null;
+    }, 3000);
+  }
+
+  /**
+   * Reset the global filter panel to default (no filters).
+   */
+  function handleClearGlobalFilters(): void {
+    globalFilters = defaultFilters();
+  }
 
   // -------------------------------------------------------------------------
   // Lifecycle: onMount
@@ -86,6 +160,12 @@
   let cleanupDrop: (() => void) | null = null;
 
   onMount(async () => {
+    try {
+      appVersion = await getVersion();
+    } catch {
+      // Keep the shipped fallback version if the runtime call is unavailable.
+    }
+
     // Get current signature info from the Rust AppState (populated during app startup)
     signaturesInfo = await getSignaturesInfo();
 
@@ -98,7 +178,18 @@
     cleanupDragOver?.();
     cleanupDragLeave?.();
     cleanupDrop?.();
+    if (refreshToastTimer) clearTimeout(refreshToastTimer);
+    if (exportAllToastTimer) clearTimeout(exportAllToastTimer);
+    if (fileToastTimer) clearTimeout(fileToastTimer);
   });
+
+  function showFileToast(message: string) {
+    fileToast = message;
+    if (fileToastTimer) clearTimeout(fileToastTimer);
+    fileToastTimer = setTimeout(() => {
+      fileToast = null;
+    }, 6000);
+  }
 
   /**
    * Reload signatures.json from disk via the Rust reload_signatures command.
@@ -122,8 +213,116 @@
   }
 
   // -------------------------------------------------------------------------
+  // Export all files into a single CSV
+  // -------------------------------------------------------------------------
+
+  async function runExportAll(doEnrich: boolean): Promise<void> {
+    if (files.length === 0 || exportingAll) return;
+
+    exportingAll = true;
+    exportAllToast = null;
+    try {
+      const stamp = new Date().toISOString().slice(0, 10);
+      const defaultName = `combined_export_${stamp}${doEnrich ? '_enriched' : ''}`;
+      const outputPath = await saveFileDialog(defaultName);
+      if (!outputPath) return;
+
+      const combined: EventRecord[] = [];
+
+      for (const entry of files) {
+        let recs = await parseEvtx(entry.path, entry.filters);
+        
+        // Enrich individual file's records before combining if requested
+        if (doEnrich) {
+          recs = await enrichRecords(recs);
+        }
+
+        for (const r of recs) {
+          // Tag each row with origin so a merged export stays attributable.
+          if (!r.extra_fields.source_file) {
+            r.extra_fields.source_file = entry.name;
+          }
+        }
+        combined.push(...recs);
+      }
+
+      // Stable sort by timestamp (ISO 8601 strings sort lexicographically).
+      combined.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+
+      // Export without LLM optimization (we want full fidelity for CSV).
+      await exportCsv(combined, outputPath, defaultFilters());
+
+      // If global report toggle is on, run enrichment check on the combined set
+      if (runEnrichment) {
+        const reportMarkdown = await runEnrichmentCheck(combined);
+        const reportPath = outputPath.replace(/\.csv$/i, '_report.md');
+        await writeTextFile(reportPath, reportMarkdown);
+      }
+
+      const enrichNote = doEnrich ? ' (enriched)' : '';
+      const reportNote = runEnrichment ? ' + report.md' : '';
+      exportAllToast = `✓ Exported ${combined.length.toLocaleString()} rows from ${files.length} file${files.length !== 1 ? 's' : ''}${enrichNote}${reportNote}`;
+      if (exportAllToastTimer) clearTimeout(exportAllToastTimer);
+      exportAllToastTimer = setTimeout(() => {
+        exportAllToast = null;
+      }, 4000);
+    } catch (err) {
+      exportAllToast = `⚠ Export failed: ${err instanceof Error ? err.message : String(err)}`;
+      if (exportAllToastTimer) clearTimeout(exportAllToastTimer);
+      exportAllToastTimer = setTimeout(() => {
+        exportAllToast = null;
+      }, 6000);
+    } finally {
+      exportingAll = false;
+    }
+  }
+
+  async function handleExportAllCsv(): Promise<void> {
+    await runExportAll(false);
+  }
+
+  async function handleEnrichExportAll(): Promise<void> {
+    await runExportAll(true);
+  }
+
+  // -------------------------------------------------------------------------
   // Adding files
   // -------------------------------------------------------------------------
+
+  /**
+   * Opens a native directory picker and recursively finds all .evtx files.
+   * Adds all discovered files to the list.
+   */
+  async function handleAddFolder(): Promise<void> {
+    let dirPath: string | null = null;
+    try {
+      showFileToast('Opening folder picker…');
+      dirPath = await openFolderDialog();
+    } catch (err) {
+      showFileToast(`⚠ ${err instanceof Error ? err.message : String(err)}`);
+      return;
+    }
+    if (!dirPath) {
+      showFileToast('No folder selected (cancelled or dialog failed to open).');
+      return;
+    }
+
+    try {
+      const paths = await listEvtxInDir(dirPath, true);
+      if (paths.length === 0) return;
+
+      const existingPaths = new Set(files.map((f) => f.path));
+      const newEntries = paths
+        .filter((p) => !existingPaths.has(p))
+        .map((p) => createFileEntry(p));
+
+      if (newEntries.length > 0) {
+        files = [...files, ...newEntries];
+      }
+    } catch (err) {
+      showFileToast(`⚠ ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
 
   /**
    * Opens a multi-select file picker filtered to .evtx files.
@@ -131,9 +330,19 @@
    * Deduplicates: won't add a file that's already loaded (by path).
    */
   async function handleAddFiles(): Promise<void> {
-    const paths = await openEvtxFiles();
+    let paths: string[] = [];
+    try {
+      showFileToast('Opening file picker…');
+      paths = await openEvtxFiles();
+    } catch (err) {
+      showFileToast(`⚠ ${err instanceof Error ? err.message : String(err)}`);
+      return;
+    }
 
-    if (paths.length === 0) return; // Dialog was cancelled
+    if (paths.length === 0) {
+      showFileToast('No files selected (cancelled or dialog failed to open).');
+      return;
+    }
 
     // Create a Set of already-loaded paths for O(1) dedup check
     const existingPaths = new Set(files.map((f) => f.path));
@@ -307,7 +516,10 @@
           </span>
           evtx-to-csv
         </h1>
-        <p class="app-subtitle">Incident Response Tool</p>
+        <div class="app-meta-row">
+          <p class="app-subtitle">Incident Response Tool</p>
+          <span class="version-pill">v{appVersion}</span>
+        </div>
       </div>
 
       <!-- Header right: exported count badge if any files are done -->
@@ -332,6 +544,14 @@
         Add Files
       </button>
 
+      <!-- Add Folder button -->
+      <button class="btn btn-secondary" on:click={handleAddFolder}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        Add Folder
+      </button>
+
       <!-- Divider -->
       <div class="toolbar-divider" aria-hidden="true"></div>
 
@@ -350,10 +570,84 @@
           Run report.md
         </span>
       </label>
+
+      <!-- Divider -->
+      <div class="toolbar-divider" aria-hidden="true"></div>
+
+      <!-- Global Filters toggle -->
+      <button
+        class="btn btn-secondary"
+        class:active={showGlobalFilters}
+        on:click={() => (showGlobalFilters = !showGlobalFilters)}
+        title="Show global filter panel to apply same filters to all files"
+      >
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon>
+        </svg>
+        Global Filters
+      </button>
+      <!-- Export all loaded files into a single CSV -->
+      <div class="btn-group">
+        <button
+          class="btn btn-secondary"
+          on:click={handleExportAllCsv}
+          disabled={files.length === 0 || exportingAll}
+          title="Parse all loaded files (with their current filters) and export a single combined CSV"
+        >
+          {#if exportingAll}
+            <span class="btn-mini-spinner" aria-hidden="true"></span>
+            Exporting…
+          {:else}
+            <svg width="13" height="13" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <path d="M7 1v8M4 6l3 3 3-3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M2 10v2a1 1 0 001 1h8a1 1 0 001-1v-2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+            </svg>
+            Export All CSV
+          {/if}
+        </button>
+
+        <button
+          class="btn btn-secondary"
+          on:click={handleEnrichExportAll}
+          disabled={files.length === 0 || exportingAll}
+          title="Deduplicate, clean TaskContent XML, and export all loaded files into a single combined CSV"
+        >
+          {#if exportingAll}
+            <span class="btn-mini-spinner" aria-hidden="true"></span>
+            Exporting…
+          {:else}
+            <svg width="13" height="13" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <path d="M2 12l8-8M7 2l1 2M12 7l-2-1M9 9l2 1M3 5l-1-2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              <circle cx="10" cy="4" r="1.2" fill="currentColor" opacity="0.7"/>
+            </svg>
+            Enrich & Export All
+          {/if}
+        </button>
+      </div>
     </div>
 
     <!-- Signatures status + Refresh button -->
     <div class="toolbar-right">
+      {#if fileToast}
+        <span class="refresh-toast" class:toast-error={fileToast.startsWith('⚠')}>
+          {fileToast}
+        </span>
+      {/if}
+      {#if exportAllToast}
+        <span class="refresh-toast" class:toast-error={exportAllToast.startsWith('⚠')}>
+          {exportAllToast}
+        </span>
+      {/if}
       {#if refreshingSignatures && signaturesInfo.count === 0}
         <span class="sig-status sig-loading">
           <span class="btn-mini-spinner" aria-hidden="true"></span>
@@ -402,6 +696,37 @@
       {/if}
     </div>
   </div>
+
+  <!-- -----------------------------------------------------------------------
+       Global Filter Panel (shown when showGlobalFilters is true)
+       ----------------------------------------------------------------------- -->
+  {#if showGlobalFilters}
+    <div class="global-filter-outer">
+      <div class="global-filter-inner">
+        <div class="global-filter-header-row">
+          <div class="global-filter-title">
+            <h3>Global Filter Panel</h3>
+            <p>Define filters here and click "Apply to All" to sync them across every file.</p>
+          </div>
+          <div class="global-filter-actions">
+            <button class="btn btn-secondary" on:click={handleClearGlobalFilters}>
+              Clear
+            </button>
+            <button
+              class="btn btn-primary"
+              on:click={handleSyncGlobalFilters}
+              disabled={files.length === 0}
+            >
+              Apply to All Files ({files.length})
+            </button>
+          </div>
+        </div>
+        <div class="global-filter-panel-wrapper">
+          <FilterPanel bind:filters={globalFilters} />
+        </div>
+      </div>
+    </div>
+  {/if}
 
   <!-- -----------------------------------------------------------------------
        Main content area
@@ -465,17 +790,28 @@
        Footer
        ----------------------------------------------------------------------- -->
   <footer class="app-footer">
-    <span class="footer-text">
-      evtx-to-csv &mdash; Incident Response Tool
-    </span>
-    {#if files.length > 0}
-      <span class="footer-count">
-        {files.length} file{files.length !== 1 ? 's' : ''} loaded
+    <div class="footer-left">
+      <span class="footer-text">
+        evtx-to-csv v{appVersion} &mdash; Incident Response Tool
       </span>
-    {/if}
+      {#if files.length > 0}
+        <span class="footer-count">
+          {files.length} file{files.length !== 1 ? 's' : ''} loaded
+        </span>
+      {/if}
+    </div>
+
+    <button class="btn-feedback" on:click={() => (showFeedback = true)}>
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+      </svg>
+      Report Bug / Request Feature
+    </button>
   </footer>
 
 </div>
+
+<FeedbackDialog show={showFeedback} on:close={() => (showFeedback = false)} />
 
 <!-- =========================================================================
      Styles
@@ -569,6 +905,25 @@
     letter-spacing: 0.05em;
     text-transform: uppercase;
     padding-left: 32px; /* Align under title text, past the icon */
+    margin: 0;
+  }
+
+  .app-meta-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .version-pill {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--color-accent);
+    background: rgba(92, 124, 250, 0.08);
+    border: 1px solid rgba(92, 124, 250, 0.22);
+    border-radius: 999px;
+    padding: 3px 8px;
   }
 
   /* Badge showing count of files already exported in this session */
@@ -621,6 +976,60 @@
   }
 
   /* -------------------------------------------------------------------------
+     Global Filter Panel
+     ------------------------------------------------------------------------- */
+  .global-filter-outer {
+    background: var(--color-bg-card);
+    border-bottom: 1px solid var(--color-border);
+    padding: 0 24px;
+    flex-shrink: 0;
+  }
+
+  .global-filter-inner {
+    max-width: 1200px;
+    margin: 0 auto;
+    width: 100%;
+    padding: 20px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .global-filter-header-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+  }
+
+  .global-filter-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+  }
+
+  .global-filter-title h3 {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--color-text);
+    margin: 0 0 4px 0;
+  }
+
+  .global-filter-title p {
+    font-size: 13px;
+    color: var(--color-text-muted);
+    margin: 0;
+  }
+
+  .global-filter-panel-wrapper {
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    padding: 20px;
+  }
+
+  /* -------------------------------------------------------------------------
      Buttons
      ------------------------------------------------------------------------- */
   .btn {
@@ -659,6 +1068,12 @@
     background: #272b3f;
   }
 
+  .btn-secondary.active {
+    background: var(--color-accent);
+    color: #fff;
+    border-color: var(--color-accent);
+  }
+
   /* Larger variant for the empty state CTA */
   .btn-lg {
     padding: 10px 20px;
@@ -674,6 +1089,15 @@
     border-top-color: var(--color-text-muted);
     animation: spin 0.8s linear infinite;
     flex-shrink: 0;
+  }
+
+  /* -------------------------------------------------------------------------
+     Button groups
+     ------------------------------------------------------------------------- */
+  .btn-group {
+    display: flex;
+    gap: 8px;
+    align-items: center;
   }
 
   /* -------------------------------------------------------------------------
@@ -875,6 +1299,55 @@
   .footer-count {
     font-size: 11px;
     color: var(--color-text-muted);
+    margin-left: 10px;
+  }
+
+  /* -------------------------------------------------------------------------
+     Feedback Button
+     ------------------------------------------------------------------------- */
+  .btn-feedback {
+    background: transparent;
+    border: 1px solid var(--color-border);
+    color: var(--color-text-dim);
+    font-size: 11px;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s;
+  }
+
+  .btn-feedback:hover {
+    color: var(--color-accent);
+    border-color: var(--color-accent);
+    background: rgba(92, 124, 250, 0.05);
+  }
+
+  @media (max-width: 720px) {
+    .header-content,
+    .app-footer {
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .app-meta-row {
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .footer-left {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .footer-count {
+      margin-left: 0;
+    }
   }
 
   /* -------------------------------------------------------------------------

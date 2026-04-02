@@ -26,6 +26,7 @@ node_modules/
 .env.*
 .env.local
 .env.*.local
+notarization-creds.sh
 
 # -----------------------------------------------------------------------------
 # Vite / build outputs
@@ -79,6 +80,12 @@ $RECYCLE.BIN/
 # Emacs
 \#*\#
 .\#*
+
+# Playwright
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
 
 # -----------------------------------------------------------------------------
 # Logs and diagnostics
