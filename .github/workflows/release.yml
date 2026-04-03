@@ -39,6 +39,22 @@ jobs:
       - name: Install frontend dependencies
         run: npm install
 
+      - name: Validate notarization credentials
+        if: matrix.platform == 'macos-latest'
+        shell: bash
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          echo "Testing Apple notarization credentials (notarytool history)..."
+          xcrun notarytool history \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            2>&1 | tail -10
+          echo "Credentials OK — proceeding to build."
+
       - name: Debug macOS Signing
         if: matrix.platform == 'macos-latest'
         shell: bash
