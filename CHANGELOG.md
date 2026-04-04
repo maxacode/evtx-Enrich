@@ -4,8 +4,17 @@ All notable changes to this project are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), with an added commit-history section so the release notes match the repository history. 
 
+## [0.2.0] - 2026-04-04
+
+### Changed
+
+- Bumped to next minor version (`0.2.0`).
+- GitHub Actions workflow now automatically updates README download links after each release on `main` and `dev`.
+
+---
+
 ## [0.1.2] - 2026-04-02
-s
+
 ### Added
 
 - **Update checker** in the toolbar: automatically checks GitHub Releases on launch and shows a badge when a newer version is available.
