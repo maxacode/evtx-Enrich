@@ -4,6 +4,14 @@ All notable changes to this project are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), with an added commit-history section so the release notes match the repository history. 
 
+## [0.2.4] - 2026-04-04
+
+### Changed
+
+- Version bump to test the update mechanism end-to-end.
+
+---
+
 ## [0.2.3] - 2026-04-04
 
 ### Fixed
