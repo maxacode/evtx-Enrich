@@ -9,8 +9,8 @@
 
 | Platform | Link |
 |----------|------|
-| macOS (Universal) | *(build in progress)* |
-| Windows (x64) | *(build in progress)* |
+| macOS (Universal) | [Download Dev build #4](https://github.com/maxacode/evtx-Enrich/releases/download/v0.1.3-dev.4/evtx-Enrich_0.1.3_universal.dmg) |
+| Windows (x64) | [Download Dev build #4](https://github.com/maxacode/evtx-Enrich/releases/download/v0.1.3-dev.4/evtx-Enrich_0.1.3_x64_en-US.msi) |
 
 <!-- DOWNLOADS_END -->
 
