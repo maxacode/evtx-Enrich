@@ -9,8 +9,8 @@
 
 | Platform | Link |
 |----------|------|
-| macOS (Universal) | [Download Dev build #5](https://github.com/maxacode/evtx-Enrich/releases/download/v0.2.0-dev.5/evtx-Enrich_0.2.0_universal.dmg) |
-| Windows (x64) | [Download Dev build #5](https://github.com/maxacode/evtx-Enrich/releases/download/v0.2.0-dev.5/evtx-Enrich_0.2.0_x64_en-US.msi) |
+| macOS (Universal) | [Download Dev build #6](https://github.com/maxacode/evtx-Enrich/releases/download/v0.2.0-dev.6/evtx-Enrich_0.2.0_universal.dmg) |
+| Windows (x64) | [Download Dev build #6](https://github.com/maxacode/evtx-Enrich/releases/download/v0.2.0-dev.6/evtx-Enrich_0.2.0_x64_en-US.msi) |
 
 <!-- DOWNLOADS_END -->
 
