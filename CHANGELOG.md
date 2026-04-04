@@ -4,6 +4,14 @@ All notable changes to this project are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), with an added commit-history section so the release notes match the repository history. 
 
+## [0.2.1] - 2026-04-04
+
+### Fixed
+
+- `shell.open` scope regex was over-restrictive (`https?://\w+` doesn't match domains with dots), causing "failed to open Scoped command argument" errors when the updater or feedback dialog tried to open any real URL. Simplified to `^(mailto:|tel:|https?://|file://).+`.
+
+---
+
 ## [0.2.0] - 2026-04-04
 
 ### Changed

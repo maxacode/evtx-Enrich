@@ -8,14 +8,14 @@
   },
   "package": {
     "productName": "evtx-Enrich",
-    "version": "0.2.0"
+    "version": "0.2.1"
   },
   "tauri": {
     "allowlist": {
       "all": false,
       "shell": {
         "all": false,
-        "open": "^((mailto:\\\\w+)|(tel:\\\\w+)|(https?://\\\\w+)|(file://)).+"
+        "open": "^(mailto:|tel:|https?://|file://).+"
       },
       "dialog": {
         "all": true,
