@@ -224,7 +224,7 @@ jobs:
 
   # ── Write latest.json manifest for the Tauri updater ──────────────────────
   update-manifest:
-    needs: release
+    needs: [release, update-readme]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -282,6 +282,7 @@ jobs:
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git pull --rebase
           git add latest.json
           git diff --cached --quiet || git commit -m "chore: update manifest [skip ci]"
           git push
