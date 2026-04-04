@@ -143,6 +143,85 @@ jobs:
           prerelease: true
           args: ${{ matrix.platform == 'macos-latest' && '--target universal-apple-darwin' || '' }}
 
+  # ── Update README download links ────────────────────────────────────────────
+  update-readme:
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update README download links
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(node -p "require('./src-tauri/tauri.conf.json').package.version")
+          IS_DEV=${{ github.ref == 'refs/heads/dev' }}
+
+          if [ "$IS_DEV" = "true" ]; then
+            TAG="v${VERSION}-dev.${{ github.run_number }}"
+            LABEL="Dev build #${{ github.run_number }}"
+          else
+            TAG="v${VERSION}"
+            LABEL="${TAG}"
+          fi
+
+          echo "Waiting for release assets to be available..."
+          sleep 30
+
+          DMG_URL=$(gh release view "$TAG" --json assets \
+            -q '.assets[] | select(.name | endswith(".dmg")) | .url' | head -1 || echo "")
+          MSI_URL=$(gh release view "$TAG" --json assets \
+            -q '.assets[] | select(.name | endswith(".msi")) | .url' | head -1 || echo "")
+
+          if [ -z "$DMG_URL" ]; then DMG_CELL="*(unavailable)*"; else DMG_CELL="[Download ${LABEL}](${DMG_URL})"; fi
+          if [ -z "$MSI_URL" ]; then MSI_CELL="*(unavailable)*"; else MSI_CELL="[Download ${LABEL}](${MSI_URL})"; fi
+
+          python3 - "$DMG_CELL" "$MSI_CELL" <<'PYEOF'
+          import re, sys
+
+          dmg_cell = sys.argv[1]
+          msi_cell = sys.argv[2]
+
+          with open("README.md", "r") as f:
+              content = f.read()
+
+          new_block = (
+              "<!-- DOWNLOADS_START -->\n"
+              "## Downloads\n\n"
+              "| Platform | Link |\n"
+              "|----------|------|\n"
+              f"| macOS (Universal) | {dmg_cell} |\n"
+              f"| Windows (x64) | {msi_cell} |\n\n"
+              "<!-- DOWNLOADS_END -->"
+          )
+
+          updated = re.sub(
+              r"<!-- DOWNLOADS_START -->.*?<!-- DOWNLOADS_END -->",
+              new_block,
+              content,
+              flags=re.DOTALL
+          )
+
+          with open("README.md", "w") as f:
+              f.write(updated)
+
+          print("README updated.")
+          PYEOF
+
+      - name: Commit README
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          git diff --cached --quiet || git commit -m "chore: update README download links [skip ci]"
+          git push
+
   # ── Write latest.json manifest for the Tauri updater ──────────────────────
   update-manifest:
     needs: release

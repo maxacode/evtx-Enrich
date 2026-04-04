@@ -4,7 +4,15 @@
 ![evtx-to-csv Homescreen](/public/homescreen.png)
 ![report sample](/public/report-sample.png)]
 
-[platform: macOS | Windows]
+<!-- DOWNLOADS_START -->
+## Downloads
+
+| Platform | Link |
+|----------|------|
+| macOS (Universal) | *(build in progress)* |
+| Windows (x64) | *(build in progress)* |
+
+<!-- DOWNLOADS_END -->
 
 A high-performance desktop application for incident responders that parses Windows Event Log `.evtx` files, applies per-file filters or global filters, exports records to CSV, and runs an automated enrichment check against known-suspicious command patterns.
 
