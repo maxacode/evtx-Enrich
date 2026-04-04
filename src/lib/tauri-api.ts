@@ -93,12 +93,13 @@ export async function checkForUpdates(channel: 'stable' | 'dev'): Promise<Releas
   const data = response.data as Record<string, unknown>;
   const version = String(data['version'] ?? '');
   if (!version || version === '0.0.0') return null;
+  const tag = String(data['tag'] ?? `v${version}`);
   return {
-    tagName:      `v${version}`,
-    name:         `evtx-Enrich v${version}`,
+    tagName:      tag,
+    name:         `evtx-Enrich ${tag}`,
     body:         String(data['notes'] ?? ''),
     publishedAt:  String(data['pub_date'] ?? ''),
-    htmlUrl:      `https://github.com/maxacode/evtx-Enrich/releases/tag/v${version}`,
+    htmlUrl:      `https://github.com/maxacode/evtx-Enrich/releases/tag/${tag}`,
     isPrerelease: true,
   };
 }

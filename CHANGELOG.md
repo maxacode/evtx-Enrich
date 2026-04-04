@@ -4,6 +4,14 @@ All notable changes to this project are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), with an added commit-history section so the release notes match the repository history. 
 
+## [0.2.3] - 2026-04-04
+
+### Fixed
+
+- Dev channel update link now points to the correct release tag (e.g. `v0.2.3-dev.42`) instead of the bare version tag (`v0.2.3`) which never exists on `dev`. The `latest.json` manifest now includes a `tag` field with the full tag, and the updater uses it directly.
+
+---
+
 ## [0.2.2] - 2026-04-04
 
 ### Changed
