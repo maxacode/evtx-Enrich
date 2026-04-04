@@ -981,8 +981,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "evtx-to-csv"
-version = "0.1.2"
+name = "evtx-enrich"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "csv",
