@@ -62,6 +62,9 @@
   import { defaultFilters } from './lib/types';
   import type { EventRecord, FileEntry } from './lib/types';
 
+  const APP_TITLE = 'Coro Prism';
+  const WORKTREE_NAME = 'dev';
+
   // -------------------------------------------------------------------------
   // Application state
   // -------------------------------------------------------------------------
@@ -86,11 +89,12 @@
    */
   let runEnrichment: boolean = true;
 
+
   /** Info about the currently-loaded signatures.json (rule count + file path) */
   let signaturesInfo: { count: number; path: string } = { count: 0, path: '' };
 
   /** Runtime app version shown in the header/footer. */
-  let appVersion = '0.1.1';
+  let appVersion = '0.2.5';
 
   /** True while a signatures reload is in progress */
   let refreshingSignatures = false;
@@ -113,6 +117,9 @@
   /** Toast message for file/folder picker errors */
   let fileToast: string | null = null;
   let fileToastTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Larger activity panel for long-running actions */
+  let activityPanel: { title: string; detail: string } | null = null;
 
   /**
    * Whether a drag-over is currently in progress on the window.
@@ -192,6 +199,14 @@
     }, 6000);
   }
 
+  function showActivity(title: string, detail: string) {
+    activityPanel = { title, detail };
+  }
+
+  function clearActivity() {
+    activityPanel = null;
+  }
+
   /**
    * Reload signatures.json from disk via the Rust reload_signatures command.
    * Updates the displayed rule count and file path without restarting the app.
@@ -223,6 +238,10 @@
     exportingAll = true;
     exportAllToast = null;
     try {
+      showActivity(
+        doEnrich ? 'Preparing combined enriched export…' : 'Preparing combined export…',
+        'Choose a destination and we will process each loaded file in sequence.'
+      );
       const stamp = new Date().toISOString().slice(0, 10);
       const defaultName = `combined_export_${stamp}${doEnrich ? '_enriched' : ''}`;
       const outputPath = await saveFileDialog(defaultName);
@@ -230,11 +249,19 @@
 
       const combined: EventRecord[] = [];
 
-      for (const entry of files) {
+      for (const [index, entry] of files.entries()) {
+        showActivity(
+          doEnrich ? 'Parsing and enriching files…' : 'Parsing files…',
+          `${index + 1} of ${files.length}: ${entry.name}`
+        );
         let recs = await parseEvtx(entry.path, entry.filters);
         
         // Enrich individual file's records before combining if requested
         if (doEnrich) {
+          showActivity(
+            'Enriching parsed records…',
+            `${index + 1} of ${files.length}: ${entry.name}`
+          );
           recs = await enrichRecords(recs);
         }
 
@@ -248,6 +275,10 @@
       }
 
       // Stable sort by timestamp (ISO 8601 strings sort lexicographically).
+      showActivity(
+        doEnrich ? 'Building enriched export…' : 'Building combined export…',
+        `Sorting ${combined.length.toLocaleString()} records and writing the CSV.`
+      );
       combined.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
 
       // Export without LLM optimization (we want full fidelity for CSV).
@@ -255,6 +286,10 @@
 
       // If global report toggle is on, run enrichment check on the combined set
       if (runEnrichment) {
+        showActivity(
+          'Generating report.md…',
+          `Analyzing ${combined.length.toLocaleString()} records against the active signatures.`
+        );
         const reportMarkdown = await runEnrichmentCheck(combined);
         const reportPath = outputPath.replace(/\.csv$/i, '_report.md');
         await writeTextFile(reportPath, reportMarkdown);
@@ -275,6 +310,7 @@
       }, 6000);
     } finally {
       exportingAll = false;
+      clearActivity();
     }
   }
 
@@ -297,18 +333,22 @@
   async function handleAddFolder(): Promise<void> {
     let dirPath: string | null = null;
     try {
+      showActivity('Opening folder picker…', 'Waiting for a folder selection.');
       showFileToast('Opening folder picker…');
       dirPath = await openFolderDialog();
     } catch (err) {
+      clearActivity();
       showFileToast(`⚠ ${err instanceof Error ? err.message : String(err)}`);
       return;
     }
     if (!dirPath) {
+      clearActivity();
       showFileToast('No folder selected (cancelled or dialog failed to open).');
       return;
     }
 
     try {
+      showActivity('Scanning folder for .evtx files…', dirPath);
       const paths = await listEvtxInDir(dirPath, true);
       if (paths.length === 0) return;
 
@@ -318,10 +358,16 @@
         .map((p) => createFileEntry(p));
 
       if (newEntries.length > 0) {
+        showActivity(
+          'Loading files into the workspace…',
+          `Adding ${newEntries.length} file${newEntries.length !== 1 ? 's' : ''} to the queue.`
+        );
         files = [...files, ...newEntries];
       }
     } catch (err) {
       showFileToast(`⚠ ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      clearActivity();
     }
   }
 
@@ -333,14 +379,17 @@
   async function handleAddFiles(): Promise<void> {
     let paths: string[] = [];
     try {
+      showActivity('Opening file picker…', 'Waiting for one or more .evtx files.');
       showFileToast('Opening file picker…');
       paths = await openEvtxFiles();
     } catch (err) {
+      clearActivity();
       showFileToast(`⚠ ${err instanceof Error ? err.message : String(err)}`);
       return;
     }
 
     if (paths.length === 0) {
+      clearActivity();
       showFileToast('No files selected (cancelled or dialog failed to open).');
       return;
     }
@@ -352,7 +401,12 @@
       .filter((p) => !existingPaths.has(p)) // Skip duplicates
       .map((p) => createFileEntry(p));
 
+    showActivity(
+      'Loading selected files…',
+      `Adding ${newEntries.length} file${newEntries.length !== 1 ? 's' : ''} to the queue.`
+    );
     files = [...files, ...newEntries];
+    clearActivity();
   }
 
   /**
@@ -512,7 +566,8 @@
           <path d="M7.5 11l2.5 2.5 4.5-4.5" stroke="var(--color-accent)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
       </span>
-      <h1 class="app-title">evtx-Enrich</h1>
+      <h1 class="app-title">{APP_TITLE}</h1>
+      <span class="worktree-pill">{WORKTREE_NAME}</span>
       <span class="header-sep" aria-hidden="true"></span>
       <p class="app-subtitle">Incident Response Tool</p>
       <span class="version-pill">v{appVersion}</span>
@@ -720,7 +775,23 @@
           </div>
         </div>
         <div class="global-filter-panel-wrapper">
-          <FilterPanel bind:filters={globalFilters} />
+          <FilterPanel
+            bind:filters={globalFilters}
+            idPrefix="global-filter"
+            on:change={(e) => (globalFilters = e.detail)}
+          />
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  {#if activityPanel}
+    <div class="activity-strip" role="status" aria-live="polite">
+      <div class="activity-strip-inner">
+        <span class="activity-spinner" aria-hidden="true"></span>
+        <div class="activity-copy">
+          <strong>{activityPanel.title}</strong>
+          <span>{activityPanel.detail}</span>
         </div>
       </div>
     </div>
@@ -790,7 +861,7 @@
   <footer class="app-footer">
     <div class="footer-left">
       <span class="footer-text">
-        evtx-Enrich v{appVersion} &mdash; Incident Response Tool
+        {APP_TITLE} {WORKTREE_NAME} v{appVersion} &mdash; Incident Response Tool
       </span>
       {#if files.length > 0}
         <span class="footer-count">
@@ -922,6 +993,18 @@
     padding: 3px 8px;
   }
 
+  .worktree-pill {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #ffd43b;
+    background: rgba(255, 212, 59, 0.1);
+    border: 1px solid rgba(255, 212, 59, 0.22);
+    border-radius: 999px;
+    padding: 3px 8px;
+  }
+
   /* Badge showing count of files already exported in this session */
   .exported-badge {
     font-size: 12px;
@@ -1023,6 +1106,56 @@
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     padding: 20px;
+  }
+
+  .activity-strip {
+    padding: 12px 24px 0;
+    background: transparent;
+    flex-shrink: 0;
+  }
+
+  .activity-strip-inner {
+    max-width: 1200px;
+    margin: 0 auto;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 16px;
+    border-radius: 14px;
+    background:
+      linear-gradient(135deg, rgba(92, 124, 250, 0.18), rgba(92, 124, 250, 0.06)),
+      var(--color-bg-card);
+    border: 1px solid rgba(92, 124, 250, 0.28);
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.16);
+  }
+
+  .activity-spinner {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    border-top-color: var(--color-accent);
+    animation: spin 0.8s linear infinite;
+    flex-shrink: 0;
+  }
+
+  .activity-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+  }
+
+  .activity-copy strong {
+    font-size: 14px;
+    color: var(--color-text);
+  }
+
+  .activity-copy span {
+    font-size: 12px;
+    color: var(--color-text-muted);
+    overflow-wrap: anywhere;
   }
 
   /* -------------------------------------------------------------------------

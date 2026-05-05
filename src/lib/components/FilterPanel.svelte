@@ -36,6 +36,9 @@
   /** The active filter configuration — bindable so parent stays in sync */
   export let filters: FilterConfig;
 
+  /** Unique DOM id prefix so multiple FilterPanel instances don't collide */
+  export let idPrefix = 'filter';
+
   // -------------------------------------------------------------------------
   // Event dispatcher
   // -------------------------------------------------------------------------
@@ -77,6 +80,13 @@
     dispatch('change', filters);
   }
 
+  function updateFilters(updater: (next: FilterConfig) => void) {
+    const next = { ...filters };
+    updater(next);
+    filters = next;
+    notify();
+  }
+
   // -------------------------------------------------------------------------
   // Date filter handlers
   // -------------------------------------------------------------------------
@@ -87,15 +97,16 @@
    */
   function setDateMode(mode: 'relative' | 'range') {
     dateMode = mode;
-    if (mode === 'relative') {
-      // Clear range values — they'd conflict with relative_days on the backend
-      filters.date_from = null;
-      filters.date_to = null;
-    } else {
-      // Clear relative value — range takes precedence when switching back
-      filters.relative_days = null;
-    }
-    notify();
+    updateFilters((next) => {
+      if (mode === 'relative') {
+        // Clear range values — they'd conflict with relative_days on the backend
+        next.date_from = null;
+        next.date_to = null;
+      } else {
+        // Clear relative value — range takes precedence when switching back
+        next.relative_days = null;
+      }
+    });
   }
 
   /**
@@ -104,16 +115,17 @@
    * Otherwise, select it and clear any date range values.
    */
   function toggleRelativeDays(days: number) {
-    if (filters.relative_days === days) {
-      // Deselect: clicking an already-active pill turns it off
-      filters.relative_days = null;
-    } else {
-      filters.relative_days = days;
-      // Mutually exclusive with date range
-      filters.date_from = null;
-      filters.date_to = null;
-    }
-    notify();
+    updateFilters((next) => {
+      if (next.relative_days === days) {
+        // Deselect: clicking an already-active pill turns it off
+        next.relative_days = null;
+      } else {
+        next.relative_days = days;
+        // Mutually exclusive with date range
+        next.date_from = null;
+        next.date_to = null;
+      }
+    });
   }
 
   /**
@@ -123,10 +135,11 @@
    */
   function handleDateFrom(event: Event) {
     const value = (event.target as HTMLInputElement).value;
-    filters.date_from = value ? value : null;
-    // Clear relative when a range value is set
-    if (filters.date_from) filters.relative_days = null;
-    notify();
+    updateFilters((next) => {
+      next.date_from = value ? value : null;
+      // Clear relative when a range value is set
+      if (next.date_from) next.relative_days = null;
+    });
   }
 
   /**
@@ -134,9 +147,10 @@
    */
   function handleDateTo(event: Event) {
     const value = (event.target as HTMLInputElement).value;
-    filters.date_to = value ? value : null;
-    if (filters.date_to) filters.relative_days = null;
-    notify();
+    updateFilters((next) => {
+      next.date_to = value ? value : null;
+      if (next.date_to) next.relative_days = null;
+    });
   }
 
   // -------------------------------------------------------------------------
@@ -146,68 +160,81 @@
   /** Update hostname filter and notify parent */
   function handleHostname(event: Event) {
     const value = (event.target as HTMLInputElement).value.trim();
-    filters.hostname = value || null;
-    notify();
+    updateFilters((next) => {
+      next.hostname = value || null;
+    });
   }
 
   /** Update username filter and notify parent */
   function handleUsername(event: Event) {
     const value = (event.target as HTMLInputElement).value.trim();
-    filters.username = value || null;
-    notify();
+    updateFilters((next) => {
+      next.username = value || null;
+    });
   }
 
   /** Update process_id filter and notify parent */
   function handleProcessId(event: Event) {
     const value = (event.target as HTMLInputElement).value.trim();
-    filters.process_id = value || null;
-    notify();
+    updateFilters((next) => {
+      next.process_id = value || null;
+    });
   }
 
   /** Update ip_address filter and notify parent */
   function handleIpAddress(event: Event) {
     const value = (event.target as HTMLInputElement).value.trim();
-    filters.ip_address = value || null;
-    notify();
+    updateFilters((next) => {
+      next.ip_address = value || null;
+    });
   }
 
   /** Update keyword filter and notify parent */
   function handleKeyword(event: Event) {
     const value = (event.target as HTMLInputElement).value.trim();
-    filters.keyword = value || null;
-    // If keyword is cleared, also clear context to avoid surprising state
-    if (!filters.keyword) {
-      filters.keyword_context = null;
-    }
-    notify();
+    updateFilters((next) => {
+      next.keyword = value || null;
+      // If keyword is cleared, also clear context to avoid surprising state
+      if (!next.keyword) {
+        next.keyword_context = null;
+      }
+    });
   }
 
   /** Update keyword_context (0–5) and notify parent */
   function handleKeywordContext(event: Event) {
     const raw = (event.target as HTMLSelectElement).value;
     const n = raw === '' ? null : Number(raw);
-    filters.keyword_context = Number.isFinite(n) ? (n as number) : null;
-    notify();
+    updateFilters((next) => {
+      next.keyword_context = Number.isFinite(n) ? (n as number) : null;
+    });
   }
 
   /** Update custom_field_name and notify parent */
   function handleCustomFieldName(event: Event) {
     const value = (event.target as HTMLInputElement).value.trim();
-    filters.custom_field_name = value || null;
-    notify();
+    updateFilters((next) => {
+      next.custom_field_name = value || null;
+    });
   }
 
   /** Update custom_field_value and notify parent */
   function handleCustomFieldValue(event: Event) {
     const value = (event.target as HTMLInputElement).value.trim();
-    filters.custom_field_value = value || null;
-    notify();
+    updateFilters((next) => {
+      next.custom_field_value = value || null;
+    });
   }
 
   /** Toggle LLM optimization mode */
   function handleLlmOptimized(event: Event) {
-    filters.llm_optimized = (event.target as HTMLInputElement).checked;
-    notify();
+    updateFilters((next) => {
+      next.llm_optimized = (event.target as HTMLInputElement).checked;
+    });
+  }
+
+  function fieldId(name: string): string {
+    return `${idPrefix}-${name}`;
   }
 
   // -------------------------------------------------------------------------
@@ -279,9 +306,9 @@
       <!-- Range mode: two datetime inputs for explicit date boundaries -->
       <div class="date-range-grid">
         <div class="field">
-          <label class="field-label" for="date-from">From</label>
+          <label class="field-label" for={fieldId('date-from')}>From</label>
           <input
-            id="date-from"
+            id={fieldId('date-from')}
             class="input"
             type="datetime-local"
             value={toDatetimeLocal(filters.date_from)}
@@ -289,9 +316,9 @@
           />
         </div>
         <div class="field">
-          <label class="field-label" for="date-to">To</label>
+          <label class="field-label" for={fieldId('date-to')}>To</label>
           <input
-            id="date-to"
+            id={fieldId('date-to')}
             class="input"
             type="datetime-local"
             value={toDatetimeLocal(filters.date_to)}
@@ -309,79 +336,84 @@
 
     <!-- Hostname -->
     <div class="field">
-      <label class="field-label" for="filter-hostname">Hostname</label>
+      <label class="field-label" for={fieldId('hostname')}>Hostname</label>
       <input
-        id="filter-hostname"
+        id={fieldId('hostname')}
         class="input"
         type="text"
         placeholder="Filter by hostname…"
         value={filters.hostname ?? ''}
+        autocomplete="off"
         on:input={handleHostname}
       />
     </div>
 
     <!-- Username -->
     <div class="field">
-      <label class="field-label" for="filter-username">Username</label>
+      <label class="field-label" for={fieldId('username')}>Username</label>
       <input
-        id="filter-username"
+        id={fieldId('username')}
         class="input"
         type="text"
         placeholder="Filter by username…"
         value={filters.username ?? ''}
+        autocomplete="off"
         on:input={handleUsername}
       />
     </div>
 
     <!-- Process ID -->
     <div class="field">
-      <label class="field-label" for="filter-pid">Process ID</label>
+      <label class="field-label" for={fieldId('pid')}>Process ID</label>
       <input
-        id="filter-pid"
+        id={fieldId('pid')}
         class="input"
         type="text"
         placeholder="Filter by process ID…"
         value={filters.process_id ?? ''}
+        autocomplete="off"
         on:input={handleProcessId}
       />
     </div>
 
     <!-- IP Address -->
     <div class="field">
-      <label class="field-label" for="filter-ip">IP Address</label>
+      <label class="field-label" for={fieldId('ip')}>IP Address</label>
       <input
-        id="filter-ip"
+        id={fieldId('ip')}
         class="input"
         type="text"
         placeholder="Filter by IP address…"
         value={filters.ip_address ?? ''}
+        autocomplete="off"
         on:input={handleIpAddress}
       />
     </div>
 
     <!-- Keyword -->
     <div class="field">
-      <label class="field-label" for="filter-keyword">Keyword</label>
+      <label class="field-label" for={fieldId('keyword')}>Keyword</label>
       <input
-        id="filter-keyword"
+        id={fieldId('keyword')}
         class="input"
         type="text"
         placeholder="Search any field…"
         value={filters.keyword ?? ''}
+        autocomplete="off"
         on:input={handleKeyword}
       />
     </div>
 
     <!-- Keyword context -->
     <div class="field">
-      <label class="field-label" for="filter-keyword-context">
+      <label class="field-label" for={fieldId('keyword-context')}>
         Context <span class="optional-tag">(optional)</span>
       </label>
       <select
-        id="filter-keyword-context"
+        id={fieldId('keyword-context')}
         class="input select"
         disabled={!filters.keyword}
-        value={filters.keyword_context ?? ''}
+        value={filters.keyword_context == null ? '' : String(filters.keyword_context)}
         on:change={handleKeywordContext}
         title="Include rows around each keyword match (before + after)"
       >
@@ -406,26 +438,28 @@
     </p>
     <div class="custom-field-grid">
       <div class="field">
-        <label class="field-label" for="filter-custom-name">Field name</label>
+        <label class="field-label" for={fieldId('custom-name')}>Field name</label>
         <input
-          id="filter-custom-name"
+          id={fieldId('custom-name')}
           class="input"
           type="text"
           placeholder="e.g. SubjectLogonId"
           value={filters.custom_field_name ?? ''}
+          autocomplete="off"
           on:input={handleCustomFieldName}
         />
       </div>
       <div class="field">
-        <label class="field-label" for="filter-custom-value">
+        <label class="field-label" for={fieldId('custom-value')}>
           Value <span class="optional-tag">(optional)</span>
         </label>
         <input
-          id="filter-custom-value"
+          id={fieldId('custom-value')}
           class="input"
           type="text"
           placeholder="Leave empty to check existence only"
           value={filters.custom_field_value ?? ''}
+          autocomplete="off"
           on:input={handleCustomFieldValue}
         />
       </div>

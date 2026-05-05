@@ -1,0 +1,1 @@
+follow and read GEMINI.md

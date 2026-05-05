@@ -8,7 +8,7 @@
   },
   "package": {
     "productName": "evtx-Enrich",
-    "version": "0.2.4"
+    "version": "0.2.5"
   },
   "tauri": {
     "allowlist": {
@@ -36,6 +36,10 @@
       },
       "app": {
         "all": true
+      },
+      "process": {
+        "all": false,
+        "relaunch": true
       },
       "fs": {
         "all": true,
@@ -79,7 +83,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "evtx-Enrich",
+        "title": "Coro Prism - dev",
         "width": 1280,
         "height": 860,
         "resizable": true,

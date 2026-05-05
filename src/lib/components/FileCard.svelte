@@ -64,6 +64,7 @@
    */
   export let runEnrichment: boolean;
 
+
   // -------------------------------------------------------------------------
   // Lifecycle
   // -------------------------------------------------------------------------
@@ -113,6 +114,10 @@
   /** Brief message for header actions (Open File / Open Folder) */
   let actionMessage: { text: string; isError: boolean } | null = null;
   let actionTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Richer progress copy shown while export/enrichment is running */
+  let progressTitle: string | null = null;
+  let progressDetail: string | null = null;
 
   // -------------------------------------------------------------------------
   // Helpers
@@ -227,6 +232,8 @@
     entry.status = 'parsing';
     entry.errorMessage = null;
     entry.recordCount = 0;
+    progressTitle = doEnrich ? 'Enriching and exporting this file…' : 'Exporting this file…';
+    progressDetail = 'Parsing EVTX records with the current filters.';
     notifyUpdate();
 
     try {
@@ -235,16 +242,19 @@
 
       // Step 2 (Enrich path only): deduplicate + clean TaskContent XML + normalise fields
       if (doEnrich) {
+        progressDetail = 'Cleaning records, deduplicating rows, and normalizing fields.';
         records = await enrichRecords(records);
       }
 
       // Step 3: Write the CSV file to the user-chosen path
+      progressDetail = `Writing ${records.length.toLocaleString()} records to CSV.`;
       await exportCsv(records, savePath, entry.filters);
 
       // Step 4: If the report toggle is on, run the enrichment check.
       // Built-in signatures from signatures.json are loaded at startup.
       // IMPORTANT: writeTextFile requires "fs": {"all":true,"scope":["**"]} in tauri.conf.json
       if (runEnrichment) {
+        progressDetail = 'Generating the report.md enrichment summary.';
         const reportMarkdown = await runEnrichmentCheck(records);
         const reportPath = savePath.replace(/\.csv$/i, '_report.md');
         await writeTextFile(reportPath, reportMarkdown);
@@ -264,6 +274,9 @@
       entry.status = 'error';
       entry.errorMessage = err instanceof Error ? err.message : String(err);
       notifyUpdate();
+    } finally {
+      progressTitle = null;
+      progressDetail = null;
     }
   }
 
@@ -455,6 +468,7 @@
       <div class="filter-panel-wrapper">
         <FilterPanel
           bind:filters={entry.filters}
+          idPrefix={`file-filter-${entry.id}`}
           on:change={handleFilterChange}
         />
       </div>
@@ -528,7 +542,16 @@
     </div>
 
     <!-- Status / feedback area -->
-    {#if entry.status === 'error' && entry.errorMessage}
+    {#if entry.status === 'parsing' && progressTitle}
+      <div class="progress-panel" role="status" aria-live="polite">
+        <span class="progress-spinner" aria-hidden="true"></span>
+        <div class="progress-copy">
+          <strong>{progressTitle}</strong>
+          <span>{progressDetail}</span>
+        </div>
+      </div>
+
+    {:else if entry.status === 'error' && entry.errorMessage}
       <!-- Error state: show red error message -->
       <div class="status-area status-error-msg" role="alert">
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -983,6 +1006,45 @@
     border-top-color: #fff;
     animation: spin 0.7s linear infinite;
     flex-shrink: 0;
+  }
+
+  .progress-panel {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, rgba(250, 176, 5, 0.14), rgba(92, 124, 250, 0.08));
+    border: 1px solid rgba(250, 176, 5, 0.28);
+    color: var(--color-text);
+  }
+
+  .progress-spinner {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    border: 2px solid rgba(250, 176, 5, 0.3);
+    border-top-color: var(--color-warning);
+    animation: spin 0.8s linear infinite;
+    flex-shrink: 0;
+  }
+
+  .progress-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+  }
+
+  .progress-copy strong {
+    font-size: 13px;
+    line-height: 1.2;
+  }
+
+  .progress-copy span {
+    font-size: 12px;
+    color: var(--color-text-muted);
+    overflow-wrap: anywhere;
   }
 
   /* -------------------------------------------------------------------------

@@ -4,10 +4,24 @@ All notable changes to this project are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), with an added commit-history section so the release notes match the repository history. 
 
+## [0.2.5] - 2026-05-05
+
+### Changed
+
+- Added a larger in-app activity panel for file picking, folder scanning, combined export, and report generation so long-running actions feel responsive.
+- Added a richer per-file progress panel during parse, export, enrich, and report steps.
+- Fixed keyword context dropdown persistence in both file-level and global filter panels.
+- Updated the application title to show `Coro Prism` with the active worktree name `dev` per `GEMINI.md`.
+
+---
+
 ## [0.2.4] - 2026-04-04
 
 ### Changed
 
+
+- Autocomplete Disabled
+- Fixed dropdown for context 
 - Version bump to test the update mechanism end-to-end.
 
 ---
