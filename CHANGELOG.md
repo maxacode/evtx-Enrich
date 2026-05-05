@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Changed
 
+
+- Autocomplete Disabled
+- Fixed dropdown for context 
 - Version bump to test the update mechanism end-to-end.
 
 ---

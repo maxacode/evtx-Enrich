@@ -32,7 +32,6 @@ mod enrichment;
 
 use std::path::PathBuf;
 use std::sync::Mutex;
-use std::time::Duration;
 use tauri::Manager;
 use types::{PatternSpec, SignaturesFile};
 
@@ -187,6 +186,29 @@ fn load_signatures_from_path(path: &PathBuf) -> Result<Vec<PatternSpec>, String>
     Ok(file.patterns)
 }
 
+/// Send a lightweight Sentry event that records which filters were used for an operation.
+/// We do not attach timestamp or hostname here because Sentry already captures event timing
+/// and host/device context through its default integrations.
+fn capture_filter_usage(operation: &str, filters: &types::FilterConfig) {
+    let filters_json = match serde_json::to_string(filters) {
+        Ok(json) => json,
+        Err(err) => format!(r#"{{"serialization_error":"{}"}}"#, err),
+    };
+
+    sentry::with_scope(
+        |scope| {
+            scope.set_tag("operation", operation);
+            scope.set_extra("filters", filters_json.clone().into());
+        },
+        || {
+            sentry::capture_message(
+                &format!("Filters used during {}", operation),
+                sentry::Level::Info,
+            );
+        },
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Tauri Commands
 // ---------------------------------------------------------------------------
@@ -197,6 +219,7 @@ fn parse_evtx(
     path: String,
     filters: types::FilterConfig,
 ) -> Result<Vec<types::EventRecord>, String> {
+    capture_filter_usage("parse_evtx", &filters);
     evtx_parser::parse_evtx_file(&path, &filters)
 }
 
@@ -252,6 +275,7 @@ fn export_csv(
     output_path: String,
     filters: types::FilterConfig,
 ) -> Result<(), String> {
+    capture_filter_usage("export_csv", &filters);
     let final_records = if filters.llm_optimized.unwrap_or(false) {
         enrichment::optimize_for_llm(records)
     } else {
@@ -498,6 +522,16 @@ fn get_system_info() -> Result<serde_json::Value, String> {
 // ---------------------------------------------------------------------------
 
 fn main() {
+    let _guard = sentry::init((
+        "https://43f1f607be16b515b4535cd8b22fa35c@o4511338975592448.ingest.us.sentry.io/4511338997350400",
+        sentry::ClientOptions {
+            release: sentry::release_name!(),
+            // Capture user IPs and potentially sensitive headers when using HTTP server integrations.
+            send_default_pii: true,
+            ..Default::default()
+        },
+    ));
+
     tauri::Builder::default()
         // setup() runs before any window opens — ideal for initialising state.
         .setup(|app| {

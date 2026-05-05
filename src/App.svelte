@@ -86,6 +86,7 @@
    */
   let runEnrichment: boolean = true;
 
+
   /** Info about the currently-loaded signatures.json (rule count + file path) */
   let signaturesInfo: { count: number; path: string } = { count: 0, path: '' };
 

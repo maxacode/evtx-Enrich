@@ -60,6 +60,8 @@
   let dateMode: 'relative' | 'range' =
     filters.date_from || filters.date_to ? 'range' : 'relative';
 
+  let keywordContextValue = filters.keyword_context?.toString() ?? '';
+
   // The relative_days pill options available to the user
   const RELATIVE_OPTIONS = [1, 3, 7, 14, 30] as const;
 
@@ -77,6 +79,20 @@
     dispatch('change', filters);
   }
 
+  function updateFilters(updater: (next: FilterConfig) => void) {
+    const next = { ...filters };
+    updater(next);
+    filters = next;
+    notify();
+  }
+
+  $: {
+    const nextValue = filters.keyword_context?.toString() ?? '';
+    if (keywordContextValue !== nextValue) {
+      keywordContextValue = nextValue;
+    }
+  }
+
   // -------------------------------------------------------------------------
   // Date filter handlers
   // -------------------------------------------------------------------------
@@ -87,15 +103,16 @@
    */
   function setDateMode(mode: 'relative' | 'range') {
     dateMode = mode;
-    if (mode === 'relative') {
-      // Clear range values — they'd conflict with relative_days on the backend
-      filters.date_from = null;
-      filters.date_to = null;
-    } else {
-      // Clear relative value — range takes precedence when switching back
-      filters.relative_days = null;
-    }
-    notify();
+    updateFilters((next) => {
+      if (mode === 'relative') {
+        // Clear range values — they'd conflict with relative_days on the backend
+        next.date_from = null;
+        next.date_to = null;
+      } else {
+        // Clear relative value — range takes precedence when switching back
+        next.relative_days = null;
+      }
+    });
   }
 
   /**
@@ -104,16 +121,17 @@
    * Otherwise, select it and clear any date range values.
    */
   function toggleRelativeDays(days: number) {
-    if (filters.relative_days === days) {
-      // Deselect: clicking an already-active pill turns it off
-      filters.relative_days = null;
-    } else {
-      filters.relative_days = days;
-      // Mutually exclusive with date range
-      filters.date_from = null;
-      filters.date_to = null;
-    }
-    notify();
+    updateFilters((next) => {
+      if (next.relative_days === days) {
+        // Deselect: clicking an already-active pill turns it off
+        next.relative_days = null;
+      } else {
+        next.relative_days = days;
+        // Mutually exclusive with date range
+        next.date_from = null;
+        next.date_to = null;
+      }
+    });
   }
 
   /**
@@ -123,10 +141,11 @@
    */
   function handleDateFrom(event: Event) {
     const value = (event.target as HTMLInputElement).value;
-    filters.date_from = value ? value : null;
-    // Clear relative when a range value is set
-    if (filters.date_from) filters.relative_days = null;
-    notify();
+    updateFilters((next) => {
+      next.date_from = value ? value : null;
+      // Clear relative when a range value is set
+      if (next.date_from) next.relative_days = null;
+    });
   }
 
   /**
@@ -134,9 +153,10 @@
    */
   function handleDateTo(event: Event) {
     const value = (event.target as HTMLInputElement).value;
-    filters.date_to = value ? value : null;
-    if (filters.date_to) filters.relative_days = null;
-    notify();
+    updateFilters((next) => {
+      next.date_to = value ? value : null;
+      if (next.date_to) next.relative_days = null;
+    });
   }
 
   // -------------------------------------------------------------------------
@@ -146,68 +166,78 @@
   /** Update hostname filter and notify parent */
   function handleHostname(event: Event) {
     const value = (event.target as HTMLInputElement).value.trim();
-    filters.hostname = value || null;
-    notify();
+    updateFilters((next) => {
+      next.hostname = value || null;
+    });
   }
 
   /** Update username filter and notify parent */
   function handleUsername(event: Event) {
     const value = (event.target as HTMLInputElement).value.trim();
-    filters.username = value || null;
-    notify();
+    updateFilters((next) => {
+      next.username = value || null;
+    });
   }
 
   /** Update process_id filter and notify parent */
   function handleProcessId(event: Event) {
     const value = (event.target as HTMLInputElement).value.trim();
-    filters.process_id = value || null;
-    notify();
+    updateFilters((next) => {
+      next.process_id = value || null;
+    });
   }
 
   /** Update ip_address filter and notify parent */
   function handleIpAddress(event: Event) {
     const value = (event.target as HTMLInputElement).value.trim();
-    filters.ip_address = value || null;
-    notify();
+    updateFilters((next) => {
+      next.ip_address = value || null;
+    });
   }
 
   /** Update keyword filter and notify parent */
   function handleKeyword(event: Event) {
     const value = (event.target as HTMLInputElement).value.trim();
-    filters.keyword = value || null;
-    // If keyword is cleared, also clear context to avoid surprising state
-    if (!filters.keyword) {
-      filters.keyword_context = null;
-    }
-    notify();
+    updateFilters((next) => {
+      next.keyword = value || null;
+      // If keyword is cleared, also clear context to avoid surprising state
+      if (!next.keyword) {
+        next.keyword_context = null;
+        keywordContextValue = '';
+      }
+    });
   }
 
   /** Update keyword_context (0–5) and notify parent */
-  function handleKeywordContext(event: Event) {
-    const raw = (event.target as HTMLSelectElement).value;
+  function handleKeywordContext() {
+    const raw = keywordContextValue;
     const n = raw === '' ? null : Number(raw);
-    filters.keyword_context = Number.isFinite(n) ? (n as number) : null;
-    notify();
+    updateFilters((next) => {
+      next.keyword_context = Number.isFinite(n) ? (n as number) : null;
+    });
   }
 
   /** Update custom_field_name and notify parent */
   function handleCustomFieldName(event: Event) {
     const value = (event.target as HTMLInputElement).value.trim();
-    filters.custom_field_name = value || null;
-    notify();
+    updateFilters((next) => {
+      next.custom_field_name = value || null;
+    });
   }
 
   /** Update custom_field_value and notify parent */
   function handleCustomFieldValue(event: Event) {
     const value = (event.target as HTMLInputElement).value.trim();
-    filters.custom_field_value = value || null;
-    notify();
+    updateFilters((next) => {
+      next.custom_field_value = value || null;
+    });
   }
 
   /** Toggle LLM optimization mode */
   function handleLlmOptimized(event: Event) {
-    filters.llm_optimized = (event.target as HTMLInputElement).checked;
-    notify();
+    updateFilters((next) => {
+      next.llm_optimized = (event.target as HTMLInputElement).checked;
+    });
   }
 
   // -------------------------------------------------------------------------
@@ -316,6 +346,7 @@
         type="text"
         placeholder="Filter by hostname…"
         value={filters.hostname ?? ''}
+        autocomplete="off"
         on:input={handleHostname}
       />
     </div>
@@ -329,6 +360,7 @@
         type="text"
         placeholder="Filter by username…"
         value={filters.username ?? ''}
+        autocomplete="off"
         on:input={handleUsername}
       />
     </div>
@@ -342,6 +374,7 @@
         type="text"
         placeholder="Filter by process ID…"
         value={filters.process_id ?? ''}
+        autocomplete="off"
         on:input={handleProcessId}
       />
     </div>
@@ -355,6 +388,7 @@
         type="text"
         placeholder="Filter by IP address…"
         value={filters.ip_address ?? ''}
+        autocomplete="off"
         on:input={handleIpAddress}
       />
     </div>
@@ -368,6 +402,7 @@
         type="text"
         placeholder="Search any field…"
         value={filters.keyword ?? ''}
+        autocomplete="off"
         on:input={handleKeyword}
       />
     </div>
@@ -381,7 +416,7 @@
         id="filter-keyword-context"
         class="input select"
         disabled={!filters.keyword}
-        value={filters.keyword_context ?? ''}
+        bind:value={keywordContextValue}
         on:change={handleKeywordContext}
         title="Include rows around each keyword match (before + after)"
       >
@@ -413,6 +448,7 @@
           type="text"
           placeholder="e.g. SubjectLogonId"
           value={filters.custom_field_name ?? ''}
+          autocomplete="off"
           on:input={handleCustomFieldName}
         />
       </div>
@@ -426,6 +462,7 @@
           type="text"
           placeholder="Leave empty to check existence only"
           value={filters.custom_field_value ?? ''}
+          autocomplete="off"
           on:input={handleCustomFieldValue}
         />
       </div>

@@ -37,6 +37,10 @@
       "app": {
         "all": true
       },
+      "process": {
+        "all": false,
+        "relaunch": true
+      },
       "fs": {
         "all": true,
         "scope": ["**"]
