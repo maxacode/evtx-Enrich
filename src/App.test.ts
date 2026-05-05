@@ -23,7 +23,7 @@ vi.mock('./lib/tauri-api', () => ({
 
 // Mock @tauri-apps/api/app
 vi.mock('@tauri-apps/api/app', () => ({
-  getVersion: vi.fn(() => Promise.resolve('0.1.1')),
+  getVersion: vi.fn(() => Promise.resolve('0.2.5')),
 }));
 
 // Mock @tauri-apps/api/path
@@ -45,7 +45,8 @@ describe('App', () => {
 
   it('renders correctly on mount', async () => {
     const { getByText } = render(App);
-    expect(getByText('evtx-Enrich')).toBeInTheDocument();
+    expect(getByText('Coro Prism')).toBeInTheDocument();
+    expect(getByText('dev')).toBeInTheDocument();
     expect(getByText('No files loaded')).toBeInTheDocument();
     
     await waitFor(() => {
@@ -86,5 +87,33 @@ describe('App', () => {
     
     await fireEvent.click(globalFiltersBtn);
     expect(queryByText('Global Filter Panel')).not.toBeInTheDocument();
+  });
+
+  it('keeps the global keyword context dropdown selection visible', async () => {
+    const { getByText, getByLabelText } = render(App);
+
+    await fireEvent.click(getByText('Global Filters'));
+
+    const keywordInput = document.getElementById('global-filter-keyword') as HTMLInputElement;
+    const contextSelect = document.getElementById('global-filter-keyword-context') as HTMLSelectElement;
+
+    await fireEvent.input(keywordInput, { target: { value: 'powershell' } });
+    await fireEvent.change(contextSelect, { target: { value: '3' } });
+
+    expect(contextSelect.value).toBe('3');
+  });
+
+  it('shows the larger activity panel while opening the file picker', async () => {
+    (tauriApi.openEvtxFiles as any).mockImplementation(
+      () => new Promise<string[]>(() => {})
+    );
+
+    const { getAllByText, getByText } = render(App);
+
+    await fireEvent.click(getAllByText('Add Files')[0]);
+
+    await waitFor(() => {
+      expect(getByText('Waiting for one or more .evtx files.')).toBeInTheDocument();
+    });
   });
 });

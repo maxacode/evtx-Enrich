@@ -18,7 +18,7 @@
 
 [package]
 name = "evtx-enrich"
-version = "0.2.4"
+version = "0.2.5"
 description = "EventViewer .evtx to CSV converter with IR enrichment"
 authors = []
 license = ""

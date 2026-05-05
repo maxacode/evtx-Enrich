@@ -1,6 +1,6 @@
 {
   "name": "evtx-enrich",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "private": true,
   "type": "module",
   "description": "Windows Event Viewer .evtx to CSV converter with IR enrichment",

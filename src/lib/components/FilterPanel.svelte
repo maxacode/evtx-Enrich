@@ -36,6 +36,9 @@
   /** The active filter configuration — bindable so parent stays in sync */
   export let filters: FilterConfig;
 
+  /** Unique DOM id prefix so multiple FilterPanel instances don't collide */
+  export let idPrefix = 'filter';
+
   // -------------------------------------------------------------------------
   // Event dispatcher
   // -------------------------------------------------------------------------
@@ -60,8 +63,6 @@
   let dateMode: 'relative' | 'range' =
     filters.date_from || filters.date_to ? 'range' : 'relative';
 
-  let keywordContextValue = filters.keyword_context?.toString() ?? '';
-
   // The relative_days pill options available to the user
   const RELATIVE_OPTIONS = [1, 3, 7, 14, 30] as const;
 
@@ -84,13 +85,6 @@
     updater(next);
     filters = next;
     notify();
-  }
-
-  $: {
-    const nextValue = filters.keyword_context?.toString() ?? '';
-    if (keywordContextValue !== nextValue) {
-      keywordContextValue = nextValue;
-    }
   }
 
   // -------------------------------------------------------------------------
@@ -203,14 +197,13 @@
       // If keyword is cleared, also clear context to avoid surprising state
       if (!next.keyword) {
         next.keyword_context = null;
-        keywordContextValue = '';
       }
     });
   }
 
   /** Update keyword_context (0–5) and notify parent */
-  function handleKeywordContext() {
-    const raw = keywordContextValue;
+  function handleKeywordContext(event: Event) {
+    const raw = (event.target as HTMLSelectElement).value;
     const n = raw === '' ? null : Number(raw);
     updateFilters((next) => {
       next.keyword_context = Number.isFinite(n) ? (n as number) : null;
@@ -238,6 +231,10 @@
     updateFilters((next) => {
       next.llm_optimized = (event.target as HTMLInputElement).checked;
     });
+  }
+
+  function fieldId(name: string): string {
+    return `${idPrefix}-${name}`;
   }
 
   // -------------------------------------------------------------------------
@@ -309,9 +306,9 @@
       <!-- Range mode: two datetime inputs for explicit date boundaries -->
       <div class="date-range-grid">
         <div class="field">
-          <label class="field-label" for="date-from">From</label>
+          <label class="field-label" for={fieldId('date-from')}>From</label>
           <input
-            id="date-from"
+            id={fieldId('date-from')}
             class="input"
             type="datetime-local"
             value={toDatetimeLocal(filters.date_from)}
@@ -319,9 +316,9 @@
           />
         </div>
         <div class="field">
-          <label class="field-label" for="date-to">To</label>
+          <label class="field-label" for={fieldId('date-to')}>To</label>
           <input
-            id="date-to"
+            id={fieldId('date-to')}
             class="input"
             type="datetime-local"
             value={toDatetimeLocal(filters.date_to)}
@@ -339,9 +336,9 @@
 
     <!-- Hostname -->
     <div class="field">
-      <label class="field-label" for="filter-hostname">Hostname</label>
+      <label class="field-label" for={fieldId('hostname')}>Hostname</label>
       <input
-        id="filter-hostname"
+        id={fieldId('hostname')}
         class="input"
         type="text"
         placeholder="Filter by hostname…"
@@ -353,9 +350,9 @@
 
     <!-- Username -->
     <div class="field">
-      <label class="field-label" for="filter-username">Username</label>
+      <label class="field-label" for={fieldId('username')}>Username</label>
       <input
-        id="filter-username"
+        id={fieldId('username')}
         class="input"
         type="text"
         placeholder="Filter by username…"
@@ -367,9 +364,9 @@
 
     <!-- Process ID -->
     <div class="field">
-      <label class="field-label" for="filter-pid">Process ID</label>
+      <label class="field-label" for={fieldId('pid')}>Process ID</label>
       <input
-        id="filter-pid"
+        id={fieldId('pid')}
         class="input"
         type="text"
         placeholder="Filter by process ID…"
@@ -381,9 +378,9 @@
 
     <!-- IP Address -->
     <div class="field">
-      <label class="field-label" for="filter-ip">IP Address</label>
+      <label class="field-label" for={fieldId('ip')}>IP Address</label>
       <input
-        id="filter-ip"
+        id={fieldId('ip')}
         class="input"
         type="text"
         placeholder="Filter by IP address…"
@@ -395,9 +392,9 @@
 
     <!-- Keyword -->
     <div class="field">
-      <label class="field-label" for="filter-keyword">Keyword</label>
+      <label class="field-label" for={fieldId('keyword')}>Keyword</label>
       <input
-        id="filter-keyword"
+        id={fieldId('keyword')}
         class="input"
         type="text"
         placeholder="Search any field…"
@@ -409,14 +406,14 @@
 
     <!-- Keyword context -->
     <div class="field">
-      <label class="field-label" for="filter-keyword-context">
+      <label class="field-label" for={fieldId('keyword-context')}>
         Context <span class="optional-tag">(optional)</span>
       </label>
       <select
-        id="filter-keyword-context"
+        id={fieldId('keyword-context')}
         class="input select"
         disabled={!filters.keyword}
-        bind:value={keywordContextValue}
+        value={filters.keyword_context == null ? '' : String(filters.keyword_context)}
         on:change={handleKeywordContext}
         title="Include rows around each keyword match (before + after)"
       >
@@ -441,9 +438,9 @@
     </p>
     <div class="custom-field-grid">
       <div class="field">
-        <label class="field-label" for="filter-custom-name">Field name</label>
+        <label class="field-label" for={fieldId('custom-name')}>Field name</label>
         <input
-          id="filter-custom-name"
+          id={fieldId('custom-name')}
           class="input"
           type="text"
           placeholder="e.g. SubjectLogonId"
@@ -453,11 +450,11 @@
         />
       </div>
       <div class="field">
-        <label class="field-label" for="filter-custom-value">
+        <label class="field-label" for={fieldId('custom-value')}>
           Value <span class="optional-tag">(optional)</span>
         </label>
         <input
-          id="filter-custom-value"
+          id={fieldId('custom-value')}
           class="input"
           type="text"
           placeholder="Leave empty to check existence only"
