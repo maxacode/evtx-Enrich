@@ -1,11 +1,17 @@
 # Project Guidelines: evtx-to-csv
 
-1. bump the version of the GUI program everytime you make a change
-2. Add the Branch/Worktree name to the Program Title of the Window so i can tell the difference. (remove it when pushing to github)
-3. Run tests for the items that were changed. 
-4. run a dev build and check for any errors if there are fix them. 
-5. Always add a version number into the GUI  
-   
+
+1. Always add a version number into the GUI  
+2. Understand the feature or bug being changed.
+3. Update or add tests for that change.
+4. Run the test suite.
+5. Bump the version number for every code change, and add a version note in CHANGELOG.md
+6. Update docs when behavior, flags, workflows, or outputs change.
+7. Add branch/worktree name to Application Title after Coro Prism. 
+8. Run a test dev session (`cargo tauri dev`); fix any errors; if it launches cleanly, close the app.
+9.  Run a test build (`cargo tauri build`); fix any errors; if it builds cleanly, close the app.
+
+
 ## Testing Standards
 This project maintains high reliability by testing both the Svelte frontend and the Rust backend.
 

@@ -4,7 +4,15 @@
 ![evtx-to-csv Homescreen](/public/homescreen.png)
 ![report sample](/public/report-sample.png)]
 
-[platform: macOS | Windows]
+<!-- DOWNLOADS_START -->
+## Downloads
+
+| Platform | Link |
+|----------|------|
+| macOS (Universal) | [Download Dev build #11](https://github.com/maxacode/evtx-Enrich/releases/download/v0.2.4-dev.11/evtx-Enrich_0.2.4_universal.dmg) |
+| Windows (x64) | [Download Dev build #11](https://github.com/maxacode/evtx-Enrich/releases/download/v0.2.4-dev.11/evtx-Enrich_0.2.4_x64_en-US.msi) |
+
+<!-- DOWNLOADS_END -->
 
 A high-performance desktop application for incident responders that parses Windows Event Log `.evtx` files, applies per-file filters or global filters, exports records to CSV, and runs an automated enrichment check against known-suspicious command patterns.
 

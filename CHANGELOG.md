@@ -2,7 +2,63 @@
 
 All notable changes to this project are documented here.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), with an added commit-history section so the release notes match the repository history.
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), with an added commit-history section so the release notes match the repository history. 
+
+## [0.2.4] - 2026-04-04
+
+### Changed
+
+- Version bump to test the update mechanism end-to-end.
+
+---
+
+## [0.2.3] - 2026-04-04
+
+### Fixed
+
+- Dev channel update link now points to the correct release tag (e.g. `v0.2.3-dev.42`) instead of the bare version tag (`v0.2.3`) which never exists on `dev`. The `latest.json` manifest now includes a `tag` field with the full tag, and the updater uses it directly.
+
+---
+
+## [0.2.2] - 2026-04-04
+
+### Changed
+
+- Version bump to test the in-app update checker flow.
+
+---
+
+## [0.2.1] - 2026-04-04
+
+### Fixed
+
+- `shell.open` scope regex was over-restrictive (`https?://\w+` doesn't match domains with dots), causing "failed to open Scoped command argument" errors when the updater or feedback dialog tried to open any real URL. Simplified to `^(mailto:|tel:|https?://|file://).+`.
+
+---
+
+## [0.2.0] - 2026-04-04
+
+### Changed
+
+- Bumped to next minor version (`0.2.0`).
+- GitHub Actions workflow now automatically updates README download links after each release on `main` and `dev`.
+
+---
+
+## [0.1.2] - 2026-04-02
+
+### Added
+
+- **Update checker** in the toolbar: automatically checks GitHub Releases on launch and shows a badge when a newer version is available.
+- Channel selector (Stable / Dev) lets users track the `main` release channel or the `dev` pre-release channel; choice is persisted across sessions.
+- Detail panel shows release title, publish date, and release notes with a "Download" button that opens the GitHub release page in the browser.
+- macOS network entitlements (`com.apple.security.network.client`) so outbound HTTP works correctly in signed & notarized builds — this also fixes the webhook feedback submission on macOS.
+
+### Changed
+
+- Window title updated to reflect `dev` worktree per GEMINI.md guidelines.
+
+---
 
 ## [0.1.1] - 2026-04-01
 

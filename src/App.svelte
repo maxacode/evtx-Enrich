@@ -46,6 +46,7 @@
   import FileCard from './lib/components/FileCard.svelte';
   import FilterPanel from './lib/components/FilterPanel.svelte';
   import FeedbackDialog from './lib/components/FeedbackDialog.svelte';
+  import UpdateChecker from './lib/components/UpdateChecker.svelte';
   import {
     openEvtxFiles,
     openFolderDialog,
@@ -503,30 +504,27 @@
        ----------------------------------------------------------------------- -->
   <header class="app-header">
     <div class="header-content">
-      <!-- App title and subtitle -->
-      <div class="app-title-group">
-        <h1 class="app-title">
-          <!-- Inline shield/log icon -->
-          <span class="title-icon" aria-hidden="true">
-            <svg width="22" height="22" viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M11 2L3 5.5v6C3 16.1 6.8 19.9 11 21c4.2-1.1 8-4.9 8-9.5v-6L11 2z"
-                    fill="rgba(92,124,250,0.18)" stroke="var(--color-accent)" stroke-width="1.5" stroke-linejoin="round"/>
-              <path d="M7.5 11l2.5 2.5 4.5-4.5" stroke="var(--color-accent)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-          </span>
-          evtx-to-csv
-        </h1>
-        <div class="app-meta-row">
-          <p class="app-subtitle">Incident Response Tool</p>
-          <span class="version-pill">v{appVersion}</span>
-        </div>
-      </div>
+      <!-- Icon + title + subtitle + version all on one line -->
+      <span class="title-icon" aria-hidden="true">
+        <svg width="18" height="18" viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M11 2L3 5.5v6C3 16.1 6.8 19.9 11 21c4.2-1.1 8-4.9 8-9.5v-6L11 2z"
+                fill="rgba(92,124,250,0.18)" stroke="var(--color-accent)" stroke-width="1.5" stroke-linejoin="round"/>
+          <path d="M7.5 11l2.5 2.5 4.5-4.5" stroke="var(--color-accent)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </span>
+      <h1 class="app-title">evtx-Enrich</h1>
+      <span class="header-sep" aria-hidden="true"></span>
+      <p class="app-subtitle">Incident Response Tool</p>
+      <span class="version-pill">v{appVersion}</span>
 
-      <!-- Header right: exported count badge if any files are done -->
+      <!-- Update checker inline in header -->
+      <UpdateChecker currentVersion={appVersion} />
+
+      <!-- Spacer pushes exported badge to far right -->
+      <div class="header-spacer"></div>
+
       {#if exportedCount > 0}
-        <span class="exported-badge">
-          {exportedCount} exported
-        </span>
+        <span class="exported-badge">{exportedCount} exported</span>
       {/if}
     </div>
   </header>
@@ -792,7 +790,7 @@
   <footer class="app-footer">
     <div class="footer-left">
       <span class="footer-text">
-        evtx-to-csv v{appVersion} &mdash; Incident Response Tool
+        evtx-Enrich v{appVersion} &mdash; Incident Response Tool
       </span>
       {#if files.length > 0}
         <span class="footer-count">
@@ -869,32 +867,36 @@
   .header-content {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    padding: 16px 0;
+    gap: 10px;
+    padding: 8px 0;
     max-width: 1200px;
     margin: 0 auto;
     width: 100%;
   }
 
-  .app-title-group {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
+  .header-spacer {
+    flex: 1;
   }
 
   .app-title {
-    font-size: 18px;
+    font-size: 16px;
     font-weight: 700;
     color: var(--color-text);
-    display: flex;
-    align-items: center;
-    gap: 10px;
     letter-spacing: -0.01em;
+    white-space: nowrap;
+    margin: 0;
   }
 
   .title-icon {
     display: flex;
     align-items: center;
+    flex-shrink: 0;
+  }
+
+  .header-sep {
+    width: 1px;
+    height: 14px;
+    background: var(--color-border);
     flex-shrink: 0;
   }
 
@@ -904,14 +906,8 @@
     color: var(--color-text-muted);
     letter-spacing: 0.05em;
     text-transform: uppercase;
-    padding-left: 32px; /* Align under title text, past the icon */
+    white-space: nowrap;
     margin: 0;
-  }
-
-  .app-meta-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
   }
 
   .version-pill {
@@ -1333,10 +1329,6 @@
       flex-wrap: wrap;
     }
 
-    .app-meta-row {
-      flex-wrap: wrap;
-      gap: 8px;
-    }
 
     .footer-left {
       display: flex;

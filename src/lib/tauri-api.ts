@@ -28,7 +28,81 @@
 import { invoke } from '@tauri-apps/api/tauri';
 import { open, save } from '@tauri-apps/api/dialog';
 import { open as openShell } from '@tauri-apps/api/shell';
+import { getClient, ResponseType } from '@tauri-apps/api/http';
+import { checkUpdate, installUpdate } from '@tauri-apps/api/updater';
+import { relaunch } from '@tauri-apps/api/process';
 import type { FilterConfig, EventRecord } from './types';
+
+export { installUpdate, relaunch };
+
+// ---------------------------------------------------------------------------
+// Update checker
+// ---------------------------------------------------------------------------
+
+export interface ReleaseInfo {
+  /** Tag name, e.g. "v0.1.2" or "v0.1.2-dev.5" */
+  tagName: string;
+  /** Human-readable release title */
+  name: string;
+  /** Markdown release notes body */
+  body: string;
+  /** ISO 8601 publish timestamp */
+  publishedAt: string;
+  /** URL to the GitHub release page for download */
+  htmlUrl: string;
+  /** True if this is a pre-release (dev build) */
+  isPrerelease: boolean;
+}
+
+/**
+ * Fetch the latest release for the chosen channel.
+ *
+ * Stable channel: delegates to Tauri's built-in updater (checks the configured
+ * endpoint in tauri.conf.json). Returns non-null only when a newer version exists.
+ *
+ * Dev channel: fetches the dev branch manifest from raw.githubusercontent.com
+ * directly (Tauri's updater endpoint only points at main/stable). Returns non-null
+ * only when a newer version exists.
+ *
+ * @param channel - "stable" or "dev"
+ * @returns ReleaseInfo if an update is available, null otherwise.
+ */
+export async function checkForUpdates(channel: 'stable' | 'dev'): Promise<ReleaseInfo | null> {
+  if (channel === 'stable') {
+    const { shouldUpdate, manifest } = await checkUpdate();
+    if (!shouldUpdate || !manifest) return null;
+    return {
+      tagName:      `v${manifest.version}`,
+      name:         `evtx-Enrich v${manifest.version}`,
+      body:         manifest.body ?? '',
+      publishedAt:  manifest.date ?? '',
+      htmlUrl:      `https://github.com/maxacode/evtx-Enrich/releases/tag/v${manifest.version}`,
+      isPrerelease: false,
+    };
+  }
+
+  // Dev channel: fetch manifest manually from the dev branch
+  const client = await getClient();
+  const response = await client.get<Record<string, unknown>>(
+    'https://raw.githubusercontent.com/maxacode/evtx-Enrich/dev/latest.json',
+    {
+      responseType: ResponseType.Json,
+      headers: { 'User-Agent': 'evtx-enrich-app' },
+    }
+  );
+  const data = response.data as Record<string, unknown>;
+  const version = String(data['version'] ?? '');
+  if (!version || version === '0.0.0') return null;
+  const tag = String(data['tag'] ?? `v${version}`);
+  return {
+    tagName:      tag,
+    name:         `evtx-Enrich ${tag}`,
+    body:         String(data['notes'] ?? ''),
+    publishedAt:  String(data['pub_date'] ?? ''),
+    htmlUrl:      `https://github.com/maxacode/evtx-Enrich/releases/tag/${tag}`,
+    isPrerelease: true,
+  };
+}
 
 function assertTauriAvailable(feature: string) {
   // In a normal browser tab (e.g. opening Vite's dev URL directly), Tauri APIs

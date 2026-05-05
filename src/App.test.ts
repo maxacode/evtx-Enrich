@@ -45,7 +45,7 @@ describe('App', () => {
 
   it('renders correctly on mount', async () => {
     const { getByText } = render(App);
-    expect(getByText('evtx-to-csv')).toBeInTheDocument();
+    expect(getByText('evtx-Enrich')).toBeInTheDocument();
     expect(getByText('No files loaded')).toBeInTheDocument();
     
     await waitFor(() => {

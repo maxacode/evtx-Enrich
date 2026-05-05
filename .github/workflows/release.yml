@@ -39,6 +39,22 @@ jobs:
       - name: Install frontend dependencies
         run: npm install
 
+      - name: Validate notarization credentials
+        if: matrix.platform == 'macos-latest'
+        shell: bash
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          echo "Testing Apple notarization credentials (notarytool history)..."
+          xcrun notarytool history \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            2>&1 | tail -10
+          echo "Credentials OK — proceeding to build."
+
       - name: Debug macOS Signing
         if: matrix.platform == 'macos-latest'
         shell: bash
@@ -90,9 +106,9 @@ jobs:
           TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
         with:
           tagName: v__VERSION__
-          releaseName: 'evtx-to-csv v__VERSION__'
+          releaseName: 'evtx-Enrich v__VERSION__'
           releaseBody: |
-            ## evtx-to-csv v__VERSION__
+            ## evtx-Enrich v__VERSION__
 
             Download the appropriate installer for your platform below.
 
@@ -118,7 +134,7 @@ jobs:
           TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
         with:
           tagName: v__VERSION__-dev.${{ github.run_number }}
-          releaseName: 'evtx-to-csv v__VERSION__ (Dev build #${{ github.run_number }})'
+          releaseName: 'evtx-Enrich v__VERSION__ (Dev build #${{ github.run_number }})'
           releaseBody: |
             **Development build** — may be unstable.
 
@@ -126,3 +142,148 @@ jobs:
           releaseDraft: false
           prerelease: true
           args: ${{ matrix.platform == 'macos-latest' && '--target universal-apple-darwin' || '' }}
+
+  # ── Update README download links ────────────────────────────────────────────
+  update-readme:
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update README download links
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(node -p "require('./src-tauri/tauri.conf.json').package.version")
+          IS_DEV=${{ github.ref == 'refs/heads/dev' }}
+
+          if [ "$IS_DEV" = "true" ]; then
+            TAG="v${VERSION}-dev.${{ github.run_number }}"
+            LABEL="Dev build #${{ github.run_number }}"
+          else
+            TAG="v${VERSION}"
+            LABEL="${TAG}"
+          fi
+
+          echo "Waiting for release assets to be available..."
+          sleep 30
+
+          DMG_URL=$(gh release view "$TAG" --json assets \
+            -q '.assets[] | select(.name | endswith(".dmg")) | .url' | head -1 || echo "")
+          MSI_URL=$(gh release view "$TAG" --json assets \
+            -q '.assets[] | select(.name | endswith(".msi")) | .url' | head -1 || echo "")
+
+          if [ -z "$DMG_URL" ]; then DMG_CELL="*(unavailable)*"; else DMG_CELL="[Download ${LABEL}](${DMG_URL})"; fi
+          if [ -z "$MSI_URL" ]; then MSI_CELL="*(unavailable)*"; else MSI_CELL="[Download ${LABEL}](${MSI_URL})"; fi
+
+          python3 - "$DMG_CELL" "$MSI_CELL" <<'PYEOF'
+          import re, sys
+
+          dmg_cell = sys.argv[1]
+          msi_cell = sys.argv[2]
+
+          with open("README.md", "r") as f:
+              content = f.read()
+
+          new_block = (
+              "<!-- DOWNLOADS_START -->\n"
+              "## Downloads\n\n"
+              "| Platform | Link |\n"
+              "|----------|------|\n"
+              f"| macOS (Universal) | {dmg_cell} |\n"
+              f"| Windows (x64) | {msi_cell} |\n\n"
+              "<!-- DOWNLOADS_END -->"
+          )
+
+          updated = re.sub(
+              r"<!-- DOWNLOADS_START -->.*?<!-- DOWNLOADS_END -->",
+              new_block,
+              content,
+              flags=re.DOTALL
+          )
+
+          with open("README.md", "w") as f:
+              f.write(updated)
+
+          print("README updated.")
+          PYEOF
+
+      - name: Commit README
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          git diff --cached --quiet || git commit -m "chore: update README download links [skip ci]"
+          git push
+
+  # ── Write latest.json manifest for the Tauri updater ──────────────────────
+  update-manifest:
+    needs: [release, update-readme]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Write latest.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(node -p "require('./src-tauri/tauri.conf.json').package.version")
+          IS_DEV=${{ github.ref == 'refs/heads/dev' }}
+
+          if [ "$IS_DEV" = "true" ]; then
+            TAG="v${VERSION}-dev.${{ github.run_number }}"
+            NOTES="Development build — Branch: dev, Run: #${{ github.run_number }}, Commit: ${{ github.sha }}"
+          else
+            TAG="v${VERSION}"
+            NOTES="Stable release v${VERSION}. See the release page for full details."
+          fi
+
+          echo "Waiting for release assets to be available..."
+          sleep 30
+
+          # Download .sig files
+          mkdir -p /tmp/sigs
+          gh release download "$TAG" --pattern "*.app.tar.gz.sig" -D /tmp/sigs --clobber || true
+          gh release download "$TAG" --pattern "*.msi.zip.sig" -D /tmp/sigs --clobber || true
+
+          MACOS_SIG=$(cat /tmp/sigs/*.app.tar.gz.sig 2>/dev/null | head -1 || echo "")
+          WIN_SIG=$(cat /tmp/sigs/*.msi.zip.sig 2>/dev/null | head -1 || echo "")
+
+          # Get asset download URLs
+          MACOS_URL=$(gh release view "$TAG" --json assets \
+            -q '.assets[] | select(.name | endswith(".app.tar.gz")) | .url' | head -1 || echo "")
+          WIN_URL=$(gh release view "$TAG" --json assets \
+            -q '.assets[] | select(.name | endswith(".msi.zip")) | .url' | head -1 || echo "")
+
+          PUB_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+          jq -n \
+            --arg version  "$VERSION" \
+            --arg tag      "$TAG" \
+            --arg notes    "$NOTES" \
+            --arg pub_date "$PUB_DATE" \
+            --arg macos_sig "$MACOS_SIG" \
+            --arg macos_url "$MACOS_URL" \
+            --arg win_sig  "$WIN_SIG" \
+            --arg win_url  "$WIN_URL" \
+            '{version:$version,tag:$tag,notes:$notes,pub_date:$pub_date,platforms:{"darwin-x86_64":{signature:$macos_sig,url:$macos_url},"darwin-aarch64":{signature:$macos_sig,url:$macos_url},"windows-x86_64":{signature:$win_sig,url:$win_url}}}' \
+            > latest.json
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add latest.json
+          git diff --cached --quiet || git commit -m "chore: update manifest [skip ci]"
+          git pull --rebase
+          git push

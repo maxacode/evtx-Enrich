@@ -1,0 +1,20 @@
+{
+  "version": "0.2.4",
+  "tag": "v0.2.4-dev.11",
+  "notes": "Development build — Branch: dev, Run: #11, Commit: f34d1cadf41c6a012ba3689a71e21631f0683705",
+  "pub_date": "2026-04-04T20:14:34Z",
+  "platforms": {
+    "darwin-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUU0xLQi9WU3VGUDh6VTBTOUNQTHFqTXU1MnFYVDNNdWtOZUF2d1hQMTBPRmc0M3FocWNVTS9rbXI0a0lqR1RwWHFRRHhyOENibGRSSnJlYStDOHhTOEpMVGtYRW5JK2dVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc1MzMzNTcxCWZpbGU6ZXZ0eC1FbnJpY2guYXBwLnRhci5nego0anVrbEZEeC9TZjJiZlhFOCtjTmZEVlpsVXlNMG50TXpGRC94VWs4WUEvalpHWmdJZk44Nzh6QTlQK2NZRVRyNXgvcHBNSHlCSVArNVNka1hlQ1ZDZz09Cg==",
+      "url": "https://github.com/maxacode/evtx-Enrich/releases/download/v0.2.4-dev.11/evtx-Enrich_universal.app.tar.gz"
+    },
+    "darwin-aarch64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUU0xLQi9WU3VGUDh6VTBTOUNQTHFqTXU1MnFYVDNNdWtOZUF2d1hQMTBPRmc0M3FocWNVTS9rbXI0a0lqR1RwWHFRRHhyOENibGRSSnJlYStDOHhTOEpMVGtYRW5JK2dVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc1MzMzNTcxCWZpbGU6ZXZ0eC1FbnJpY2guYXBwLnRhci5nego0anVrbEZEeC9TZjJiZlhFOCtjTmZEVlpsVXlNMG50TXpGRC94VWs4WUEvalpHWmdJZk44Nzh6QTlQK2NZRVRyNXgvcHBNSHlCSVArNVNka1hlQ1ZDZz09Cg==",
+      "url": "https://github.com/maxacode/evtx-Enrich/releases/download/v0.2.4-dev.11/evtx-Enrich_universal.app.tar.gz"
+    },
+    "windows-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUU0xLQi9WU3VGUDNSa1o1OFZRekZmbVJNY2xoMzgvVUNNSGVLUUlyaVNBQTZjWnZZcGI2UFlhQm1XTHdyNytMU1FqeHJtcVo5QzRMYmtzSmpRTjYweXFuYm13Q3VINnc0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc1MzMzNTkxCWZpbGU6ZXZ0eC1FbnJpY2hfMC4yLjRfeDY0X2VuLVVTLm1zaS56aXAKOEJXOHRVSFJxVjUvbitpWnRmaVJiQXdaendwOE1RUXEwNEpoS09JTzRCam9rQk5DWE84c1cyMndsUHhJT2tiRkxwT0RORElkaUhNNjE5ckNHNW05QVE9PQo=",
+      "url": "https://github.com/maxacode/evtx-Enrich/releases/download/v0.2.4-dev.11/evtx-Enrich_0.2.4_x64_en-US.msi.zip"
+    }
+  }
+}

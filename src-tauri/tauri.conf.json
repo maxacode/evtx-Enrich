@@ -7,15 +7,15 @@
     "distDir": "../dist"
   },
   "package": {
-    "productName": "evtx-to-csv",
-    "version": "0.1.1"
+    "productName": "evtx-Enrich",
+    "version": "0.2.4"
   },
   "tauri": {
     "allowlist": {
       "all": false,
       "shell": {
         "all": false,
-        "open": "^((mailto:\\\\w+)|(tel:\\\\w+)|(https?://\\\\w+)|(file://)).+"
+        "open": "^(mailto:|tel:|https?://|file://).+"
       },
       "dialog": {
         "all": true,
@@ -27,6 +27,7 @@
         "request": true,
         "scope": [
           "https://api.github.com/repos/*",
+          "https://raw.githubusercontent.com/maxacode/evtx-Enrich/*",
           "https://webhook.site/kids-video-ml"
         ]
       },
@@ -47,7 +48,10 @@
     "bundle": {
       "active": true,
       "targets": "all",
-      "identifier": "com.evtx.tocsv",
+      "identifier": "com.evtx.enrich",
+      "macOS": {
+        "entitlements": "./entitlements.plist"
+      },
       "resources": [
         "signatures.json"
       ],
@@ -60,6 +64,14 @@
         "icons/icon.ico"
       ]
     },
+    "updater": {
+      "active": true,
+      "endpoints": [
+        "https://raw.githubusercontent.com/maxacode/evtx-Enrich/main/latest.json"
+      ],
+      "dialog": false,
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDNGODUyQjU1N0ZBMDJDRDIKUldUU0xLQi9WU3VGUHdQNng4MHE1WHE0RStUSFJnM0FDaFd1RnlBWkpNd1FMQytYbHZlNU5GVTQK"
+    },
     "security": {
       "csp": null
     },
@@ -67,7 +79,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "evtx-to-csv (gemini-feedback)",
+        "title": "evtx-Enrich",
         "width": 1280,
         "height": 860,
         "resizable": true,
